@@ -39,8 +39,10 @@ export default function ViewDataTab() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [edit, setEdit] = useState<Partial<Rec>>({});
   const [loading, setLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/revs")
@@ -111,6 +113,23 @@ export default function ViewDataTab() {
     window.location.href = `/api/records/export?${params.toString()}`;
   }
 
+  function openSearch() {
+    setSearchOpen(true);
+  }
+
+  function closeSearch() {
+    setSearch("");
+    setSearchOpen(false);
+  }
+
+  function handleSearchBlur() {
+    if (!search.trim()) setSearchOpen(false);
+  }
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
   const ready = Boolean(town && revId);
 
   return (
@@ -143,14 +162,75 @@ export default function ViewDataTab() {
       {ready && (
         <>
           <div className="flex gap-2">
-            <input
-              className="field flex-1 min-w-0"
-              placeholder="Search name or phone"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            {searchOpen ? (
+              <div className="relative flex-1 min-w-0">
+                <svg
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-dim"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  className="field pl-10 pr-10"
+                  placeholder="Search name or phone"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onBlur={handleSearchBlur}
+                />
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={closeSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dim p-1"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                aria-label="Search"
+                onClick={openSearch}
+                className="btn-outline shrink-0 w-11 h-11 !p-0 flex items-center justify-center"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+            )}
             <select
-              className="field w-[128px]"
+              className={`field w-[128px] shrink-0 ${searchOpen ? "hidden sm:block" : ""}`}
               value={sort}
               onChange={(e) => setSort(e.target.value as any)}
             >
