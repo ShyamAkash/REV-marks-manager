@@ -128,15 +128,17 @@ export default function AddRevPage() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-20 border-b border-line bg-ink flex items-center justify-between px-4 py-3">
-        <Link href="/" className="btn-outline text-xs px-3 py-2">
-          Back
-        </Link>
-        <span className="text-sm font-semibold tracking-wide">Manage REV Numbers</span>
-        <span className="w-[58px]" />
+      <header className="sticky top-0 z-20 border-b border-line bg-ink">
+        <div className="w-full max-w-2xl mx-auto flex items-center justify-between px-4 py-3">
+          <Link href="/" className="btn-outline text-xs px-3 py-2">
+            Back
+          </Link>
+          <span className="text-sm font-semibold tracking-wide">Manage REV Numbers</span>
+          <span className="w-[58px]" />
+        </div>
       </header>
 
-      <main className="flex-1 px-4 py-4 flex flex-col gap-5 pb-8 max-w-lg mx-auto w-full">
+      <main className="flex-1 px-4 py-4 md:py-6 flex flex-col gap-5 pb-8 max-w-2xl mx-auto w-full">
         {message && (
           <div className="rounded-xl border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-xs text-paper text-center">
             {message}

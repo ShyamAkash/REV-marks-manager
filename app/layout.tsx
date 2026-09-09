@@ -4,11 +4,18 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "RevMarks",
   description: "Paper marks record, rank sheet generation, and data export system for exam revisions",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "RevMarks",
+  },
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/pwa-192x192.png", sizes: "192x192", type: "image/png" },
     ],
-    apple: "/icon.svg",
+    apple: "/apple-touch-icon.png",
   },
 };
 
