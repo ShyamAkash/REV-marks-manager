@@ -161,26 +161,12 @@ export default function ViewDataTab() {
 
       {ready && (
         <>
-          <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-2 w-full">
             {searchOpen ? (
               <div className="relative flex-1 min-w-0">
-                <svg
-                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-dim"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
                 <input
                   ref={searchInputRef}
-                  className="field pl-10 pr-10"
+                  className="field pr-9"
                   placeholder="Search name or phone"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -189,8 +175,9 @@ export default function ViewDataTab() {
                 <button
                   type="button"
                   aria-label="Clear search"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={closeSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dim p-1"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-paper p-1 transition-colors"
                 >
                   <svg
                     width="16"
@@ -230,7 +217,7 @@ export default function ViewDataTab() {
               </button>
             )}
             <select
-              className={`field w-[128px] shrink-0 ${searchOpen ? "hidden sm:block" : ""}`}
+              className="field !w-auto min-w-[124px] max-w-[144px] shrink-0 text-xs sm:text-sm py-2.5 pl-3 pr-8 !bg-[right_10px_center]"
               value={sort}
               onChange={(e) => setSort(e.target.value as any)}
             >

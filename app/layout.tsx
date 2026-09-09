@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Marks",
-  description: "Paper marks record system",
+  title: "REV Marks Manager",
+  description: "Paper marks record, rank sheet generation, and data export system for exam revisions",
 };
 
 export const viewport: Viewport = {
