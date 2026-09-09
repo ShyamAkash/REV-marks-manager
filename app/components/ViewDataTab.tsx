@@ -144,7 +144,7 @@ export default function ViewDataTab() {
         <>
           <div className="flex gap-2">
             <input
-              className="field flex-1"
+              className="field flex-1 min-w-0"
               placeholder="Search name or phone"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
