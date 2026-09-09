@@ -21,7 +21,10 @@ export default function Home() {
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-20 border-b border-line bg-ink">
         <div className="flex items-center justify-between px-4 py-3">
-          <span className="text-sm font-semibold tracking-wide">Marks</span>
+          <span className="text-sm font-semibold tracking-wide">
+            <span className="text-gold">Rev</span>
+            <span className="text-paper">Marks</span>
+          </span>
           <Link href="/add-rev" className="btn-outline text-xs px-3 py-2">
             + Add REV
           </Link>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#000000"/>
+  <text
+    x="50%"
+    y="51%"
+    dominant-baseline="central"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+    font-size="280"
+    font-weight="900"
+    letter-spacing="-12"
+  >
+    <tspan fill="#dd390b">R</tspan><tspan fill="#ffffff">M</tspan>
+  </text>
+</svg>
