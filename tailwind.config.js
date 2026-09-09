@@ -7,12 +7,12 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        ink: "#050505",
+        ink: "#000000",
         panel: "#0d0d0d",
         line: "#2a2a2a",
         paper: "#f4f4f2",
         dim: "#8c8c8c",
-        gold: "#d8a53d",
+        gold: "#dd390b",
       },
       fontFamily: {
         sans: [
