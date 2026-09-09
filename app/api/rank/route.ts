@@ -18,28 +18,29 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const town = searchParams.get("town") || ""; // "ALL" or a specific town
-    const rev_no = searchParams.get("rev_no") || "";
+    const revIdParam = searchParams.get("rev_id") || "";
 
-    if (!town || !rev_no) {
+    if (!town || !revIdParam) {
       return NextResponse.json(
         { error: "Town and REV No. are required." },
         { status: 400 }
       );
     }
+    const rev_id = Number(revIdParam);
 
     const db = sql();
     const revRows = await db(
-      `SELECT rev_no, num_mcq, num_structured, num_essay
-       FROM rev_numbers WHERE rev_no = $1`,
-      [rev_no]
+      `SELECT id, rev_no, num_mcq, num_structured, num_essay
+       FROM rev_numbers WHERE id = $1`,
+      [rev_id]
     );
     const rev = revRows[0] || null;
 
     const rows =
       town === "ALL"
-        ? await db(`SELECT * FROM records WHERE rev_no = $1`, [rev_no])
-        : await db(`SELECT * FROM records WHERE rev_no = $1 AND town = $2`, [
-            rev_no,
+        ? await db(`SELECT * FROM records WHERE rev_id = $1`, [rev_id])
+        : await db(`SELECT * FROM records WHERE rev_id = $1 AND town = $2`, [
+            rev_id,
             town,
           ]);
 
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
     let y = PAGE_HEIGHT - MARGIN;
 
     function drawHeader() {
-      page.drawText(`Rank Sheet - REV No. ${rev_no}`, {
+      page.drawText(`Rank Sheet - REV No. ${rev?.rev_no || ""}`, {
         x: MARGIN,
         y,
         size: 16,
@@ -118,7 +119,7 @@ export async function GET(req: NextRequest) {
     }
 
     const pdfBytes = await pdfDoc.save();
-    const filename = `rank_${rev_no}_${town}.pdf`.replace(/\s+/g, "_");
+    const filename = `rank_${rev?.rev_no || rev_id}_${town}.pdf`.replace(/\s+/g, "_");
 
     return new NextResponse(new Uint8Array(pdfBytes), {
       status: 200,

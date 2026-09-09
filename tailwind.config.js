@@ -7,7 +7,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        ink: "#000000",
+        ink: "#050505",
         panel: "#0d0d0d",
         line: "#2a2a2a",
         paper: "#f4f4f2",
@@ -16,16 +16,14 @@ module.exports = {
       },
       fontFamily: {
         sans: [
-          "var(--font-sans)",
+          '"Segoe UI"',
           "-apple-system",
           "BlinkMacSystemFont",
-          "Segoe UI",
+          "Roboto",
+          '"Helvetica Neue"',
+          "Arial",
           "sans-serif",
         ],
-        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
-      },
-      borderRadius: {
-        sm: "2px",
       },
     },
   },

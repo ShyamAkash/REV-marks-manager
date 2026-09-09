@@ -1,19 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-
-const sans = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Marks",
@@ -33,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en">
       <body className="min-h-dvh bg-ink text-paper font-sans antialiased">
         {children}
       </body>

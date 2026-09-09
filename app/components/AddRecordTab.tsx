@@ -4,17 +4,18 @@ import { useEffect, useState } from "react";
 import { TOWNS } from "@/lib/towns";
 
 type RevOption = {
+  id: number;
   rev_no: string;
   num_mcq: number;
   num_structured: number;
   num_essay: number;
 };
 
-const SESSION_KEY = "marks_session_v1";
+const SESSION_KEY = "marks_session_v2";
 
 export default function AddRecordTab() {
   const [town, setTown] = useState("");
-  const [revNo, setRevNo] = useState("");
+  const [revId, setRevId] = useState("");
   const [checkedBy, setCheckedBy] = useState("");
   const [locked, setLocked] = useState(false);
 
@@ -39,9 +40,9 @@ export default function AddRecordTab() {
     if (raw) {
       try {
         const s = JSON.parse(raw);
-        if (s.town && s.revNo && s.checkedBy) {
+        if (s.town && s.revId && s.checkedBy) {
           setTown(s.town);
-          setRevNo(s.revNo);
+          setRevId(String(s.revId));
           setCheckedBy(s.checkedBy);
           setLocked(true);
         }
@@ -50,10 +51,10 @@ export default function AddRecordTab() {
   }, []);
 
   function startSession() {
-    if (!town || !revNo || !checkedBy.trim()) return;
+    if (!town || !revId || !checkedBy.trim()) return;
     sessionStorage.setItem(
       SESSION_KEY,
-      JSON.stringify({ town, revNo, checkedBy: checkedBy.trim() })
+      JSON.stringify({ town, revId, checkedBy: checkedBy.trim() })
     );
     setLocked(true);
   }
@@ -72,7 +73,7 @@ export default function AddRecordTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           town,
-          rev_no: revNo,
+          rev_id: Number(revId),
           staff: checkedBy.trim(),
           student_name: studentName.trim() || null,
           phone_no: phone.trim() || null,
@@ -98,7 +99,7 @@ export default function AddRecordTab() {
 
   return (
     <div className="flex flex-col gap-5 pb-8">
-      <section className="flex flex-col gap-3 border border-line p-3 rounded-sm">
+      <section className="flex flex-col gap-3 border border-line p-4 rounded-2xl">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="field-label">Town</label>
@@ -120,13 +121,13 @@ export default function AddRecordTab() {
             <label className="field-label">REV No.</label>
             <select
               className="field"
-              value={revNo}
+              value={revId}
               disabled={locked}
-              onChange={(e) => setRevNo(e.target.value)}
+              onChange={(e) => setRevId(e.target.value)}
             >
               <option value="">Select</option>
               {revs.map((r) => (
-                <option key={r.rev_no} value={r.rev_no}>
+                <option key={r.id} value={r.id}>
                   {r.rev_no}
                 </option>
               ))}
@@ -147,7 +148,7 @@ export default function AddRecordTab() {
         {!locked ? (
           <button
             className="btn-primary"
-            disabled={!town || !revNo || !checkedBy.trim()}
+            disabled={!town || !revId || !checkedBy.trim()}
             onClick={startSession}
           >
             Start

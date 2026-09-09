@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS rev_numbers (
 CREATE TABLE IF NOT EXISTS records (
   id SERIAL PRIMARY KEY,
   town TEXT NOT NULL,
-  rev_no TEXT NOT NULL,
+  rev_id INTEGER NOT NULL REFERENCES rev_numbers (id),
   student_name TEXT,
   phone_no TEXT,
   mcq_mark NUMERIC NOT NULL DEFAULT 0,
@@ -23,6 +23,6 @@ CREATE TABLE IF NOT EXISTS records (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_records_town_rev ON records (town, rev_no);
+CREATE INDEX IF NOT EXISTS idx_records_town_rev ON records (town, rev_id);
 CREATE INDEX IF NOT EXISTS idx_records_updated_at ON records (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_records_search ON records (student_name, phone_no);

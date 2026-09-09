@@ -7,7 +7,7 @@ export async function GET() {
   try {
     const db = sql();
     const rows = await db(
-      `SELECT rev_no, num_mcq, num_structured, num_essay
+      `SELECT id, rev_no, num_mcq, num_structured, num_essay
        FROM rev_numbers
        ORDER BY rev_no ASC`
     );
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (rev_no)
        DO UPDATE SET num_mcq = $2, num_structured = $3, num_essay = $4
-       RETURNING rev_no, num_mcq, num_structured, num_essay`,
+       RETURNING id, rev_no, num_mcq, num_structured, num_essay`,
       [rev_no, num_mcq, num_structured, num_essay]
     );
     return NextResponse.json({ rev: rows[0] });

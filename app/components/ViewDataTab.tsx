@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { TOWNS } from "@/lib/towns";
 
 type RevOption = {
+  id: number;
   rev_no: string;
   num_mcq: number;
   num_structured: number;
@@ -13,7 +14,7 @@ type RevOption = {
 type Rec = {
   id: number;
   town: string;
-  rev_no: string;
+  rev_id: number;
   student_name: string | null;
   phone_no: string | null;
   mcq_mark: number;
@@ -28,7 +29,7 @@ const POLL_MS = 3000;
 
 export default function ViewDataTab() {
   const [town, setTown] = useState("");
-  const [revNo, setRevNo] = useState("");
+  const [revId, setRevId] = useState("");
   const [revs, setRevs] = useState<RevOption[]>([]);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"modified" | "total_desc" | "total_asc">(
@@ -49,18 +50,18 @@ export default function ViewDataTab() {
   }, []);
 
   const load = useCallback(async () => {
-    if (!town || !revNo) {
+    if (!town || !revId) {
       setRecords([]);
       return;
     }
-    const params = new URLSearchParams({ town, rev_no: revNo, sort });
+    const params = new URLSearchParams({ town, rev_id: revId, sort });
     if (search.trim()) params.set("search", search.trim());
     try {
       const res = await fetch(`/api/records?${params.toString()}`);
       const data = await res.json();
       setRecords(data.records || []);
     } catch {}
-  }, [town, revNo, search, sort]);
+  }, [town, revId, search, sort]);
 
   useEffect(() => {
     setLoading(true);
@@ -69,13 +70,13 @@ export default function ViewDataTab() {
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
-    if (town && revNo) {
+    if (town && revId) {
       pollRef.current = setInterval(load, POLL_MS);
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [town, revNo, load]);
+  }, [town, revId, load]);
 
   function beginEdit(r: Rec) {
     setEditingId(r.id);
@@ -105,12 +106,12 @@ export default function ViewDataTab() {
   }
 
   function downloadSheet() {
-    if (!town || !revNo) return;
-    const params = new URLSearchParams({ town, rev_no: revNo });
+    if (!town || !revId) return;
+    const params = new URLSearchParams({ town, rev_id: revId });
     window.location.href = `/api/records/export?${params.toString()}`;
   }
 
-  const ready = Boolean(town && revNo);
+  const ready = Boolean(town && revId);
 
   return (
     <div className="flex flex-col gap-4 pb-8">
@@ -128,10 +129,10 @@ export default function ViewDataTab() {
         </div>
         <div>
           <label className="field-label">REV No.</label>
-          <select className="field" value={revNo} onChange={(e) => setRevNo(e.target.value)}>
+          <select className="field" value={revId} onChange={(e) => setRevId(e.target.value)}>
             <option value="">Select</option>
             {revs.map((r) => (
-              <option key={r.rev_no} value={r.rev_no}>
+              <option key={r.id} value={r.id}>
                 {r.rev_no}
               </option>
             ))}
@@ -167,7 +168,7 @@ export default function ViewDataTab() {
               <div className="text-dim text-xs text-center py-6">No records</div>
             )}
             {records.map((r) => (
-              <div key={r.id} className="border border-line rounded-sm p-3">
+              <div key={r.id} className="border border-line rounded-2xl p-4">
                 {editingId === r.id ? (
                   <div className="flex flex-col gap-2">
                     <input

@@ -10,26 +10,27 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const town = searchParams.get("town") || "";
-    const rev_no = searchParams.get("rev_no") || "";
+    const revIdParam = searchParams.get("rev_id") || "";
 
-    if (!town || !rev_no) {
+    if (!town || !revIdParam) {
       return NextResponse.json(
         { error: "Town and REV No. are required." },
         { status: 400 }
       );
     }
+    const rev_id = Number(revIdParam);
 
     const db = sql();
     const revRows = await db(
-      `SELECT rev_no, num_mcq, num_structured, num_essay
-       FROM rev_numbers WHERE rev_no = $1`,
-      [rev_no]
+      `SELECT id, rev_no, num_mcq, num_structured, num_essay
+       FROM rev_numbers WHERE id = $1`,
+      [rev_id]
     );
     const rev = revRows[0] || null;
 
     const rows = await db(
-      `SELECT * FROM records WHERE town = $1 AND rev_no = $2`,
-      [town, rev_no]
+      `SELECT * FROM records WHERE town = $1 AND rev_id = $2`,
+      [town, rev_id]
     );
 
     const withTotals = rows.map((r: any) => ({
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
     }
 
     const buf = await workbook.xlsx.writeBuffer();
-    const filename = `${town}_${rev_no}_marks.xlsx`.replace(/\s+/g, "_");
+    const filename = `${town}_${rev?.rev_no || rev_id}_marks.xlsx`.replace(/\s+/g, "_");
 
     return new NextResponse(Buffer.from(buf), {
       status: 200,

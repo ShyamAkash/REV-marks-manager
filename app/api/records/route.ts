@@ -8,20 +8,21 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const town = searchParams.get("town") || "";
-    const rev_no = searchParams.get("rev_no") || "";
+    const revIdParam = searchParams.get("rev_id") || "";
     const search = (searchParams.get("search") || "").trim();
     const sort = searchParams.get("sort") || "modified"; // "modified" | "total_asc" | "total_desc"
 
-    if (!town || !rev_no) {
+    if (!town || !revIdParam) {
       return NextResponse.json({ records: [], rev: null });
     }
+    const rev_id = Number(revIdParam);
 
     const db = sql();
 
     const revRows = await db(
-      `SELECT rev_no, num_mcq, num_structured, num_essay
-       FROM rev_numbers WHERE rev_no = $1`,
-      [rev_no]
+      `SELECT id, rev_no, num_mcq, num_structured, num_essay
+       FROM rev_numbers WHERE id = $1`,
+      [rev_id]
     );
     const rev = revRows[0] || null;
 
@@ -30,17 +31,17 @@ export async function GET(req: NextRequest) {
       const like = `%${search}%`;
       rows = await db(
         `SELECT * FROM records
-         WHERE town = $1 AND rev_no = $2
+         WHERE town = $1 AND rev_id = $2
            AND (student_name ILIKE $3 OR phone_no ILIKE $3)
          ORDER BY updated_at DESC`,
-        [town, rev_no, like]
+        [town, rev_id, like]
       );
     } else {
       rows = await db(
         `SELECT * FROM records
-         WHERE town = $1 AND rev_no = $2
+         WHERE town = $1 AND rev_id = $2
          ORDER BY updated_at DESC`,
-        [town, rev_no]
+        [town, rev_id]
       );
     }
 
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const town = String(body.town || "").trim();
-    const rev_no = String(body.rev_no || "").trim();
+    const rev_id = Number(body.rev_id);
     const staff = String(body.staff || "").trim();
     const student_name = body.student_name ? String(body.student_name).trim() : null;
     const phone_no = body.phone_no ? String(body.phone_no).trim() : null;
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     const structured_mark = Number(body.structured_mark) || 0;
     const essay_mark = Number(body.essay_mark) || 0;
 
-    if (!town || !rev_no) {
+    if (!town || !rev_id) {
       return NextResponse.json(
         { error: "Town and REV No. are required." },
         { status: 400 }
@@ -86,10 +87,10 @@ export async function POST(req: NextRequest) {
     const db = sql();
     const rows = await db(
       `INSERT INTO records
-        (town, rev_no, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff)
+        (town, rev_id, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
-      [town, rev_no, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff]
+      [town, rev_id, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff]
     );
     return NextResponse.json({ record: rows[0] });
   } catch (err: any) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TOWNS } from "@/lib/towns";
 
 type RevOption = {
+  id: number;
   rev_no: string;
   num_mcq: number;
   num_structured: number;
@@ -12,7 +13,7 @@ type RevOption = {
 
 export default function RankSheetTab() {
   const [revs, setRevs] = useState<RevOption[]>([]);
-  const [revNo, setRevNo] = useState("");
+  const [revId, setRevId] = useState("");
   const [town, setTown] = useState("");
 
   useEffect(() => {
@@ -23,8 +24,8 @@ export default function RankSheetTab() {
   }, []);
 
   function download() {
-    if (!revNo || !town) return;
-    const params = new URLSearchParams({ rev_no: revNo, town });
+    if (!revId || !town) return;
+    const params = new URLSearchParams({ rev_id: revId, town });
     window.location.href = `/api/rank?${params.toString()}`;
   }
 
@@ -32,10 +33,10 @@ export default function RankSheetTab() {
     <div className="flex flex-col gap-4">
       <div>
         <label className="field-label">REV No.</label>
-        <select className="field" value={revNo} onChange={(e) => setRevNo(e.target.value)}>
+        <select className="field" value={revId} onChange={(e) => setRevId(e.target.value)}>
           <option value="">Select</option>
           {revs.map((r) => (
-            <option key={r.rev_no} value={r.rev_no}>
+            <option key={r.id} value={r.id}>
               {r.rev_no}
             </option>
           ))}
@@ -54,7 +55,7 @@ export default function RankSheetTab() {
         </select>
       </div>
 
-      <button className="btn-primary mt-2" disabled={!revNo || !town} onClick={download}>
+      <button className="btn-primary mt-2" disabled={!revId || !town} onClick={download}>
         Download Rank PDF
       </button>
     </div>

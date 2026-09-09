@@ -1,4 +1,5 @@
 export type RevConfig = {
+  id: number;
   rev_no: string;
   num_mcq: number;
   num_structured: number;
@@ -8,7 +9,7 @@ export type RevConfig = {
 export type Record = {
   id: number;
   town: string;
-  rev_no: string;
+  rev_id: number;
   student_name: string | null;
   phone_no: string | null;
   mcq_mark: number;

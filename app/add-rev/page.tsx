@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type RevOption = {
+  id: number;
   rev_no: string;
   num_mcq: number;
   num_structured: number;
@@ -114,8 +115,8 @@ export default function AddRevPage() {
         <section className="flex flex-col gap-2 border-t border-line pt-4">
           {revs.map((r) => (
             <div
-              key={r.rev_no}
-              className="flex items-center justify-between border border-line rounded-sm px-3 py-2 text-xs"
+              key={r.id}
+              className="flex items-center justify-between border border-line rounded-2xl px-4 py-3 text-xs"
             >
               <span className="text-sm">{r.rev_no}</span>
               <span className="num text-dim">
