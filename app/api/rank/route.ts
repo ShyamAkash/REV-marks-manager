@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { calcTotal } from "@/lib/calc";
-import PDFDocument from "pdfkit";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const PAGE_WIDTH = 595.28; // A4
+const PAGE_HEIGHT = 841.89;
+const MARGIN = 40;
+const ROW_HEIGHT = 20;
+const COL_RANK = MARGIN;
+const COL_NAME = MARGIN + 70;
+const COL_TOTAL = PAGE_WIDTH - MARGIN - 90;
 
 export async function GET(req: NextRequest) {
   try {
@@ -43,64 +51,76 @@ export async function GET(req: NextRequest) {
       .sort((a: any, b: any) => b.total - a.total)
       .map((r: any, i: number) => ({ rank: i + 1, ...r }));
 
-    const pdfBuffer: Buffer = await new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ size: "A4", margin: 40 });
-      const chunks: Buffer[] = [];
-      doc.on("data", (c) => chunks.push(c));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const black = rgb(0, 0, 0);
+    const gray = rgb(0.2, 0.2, 0.2);
 
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(16)
-        .fillColor("#000000")
-        .text(`Rank Sheet - REV No. ${rev_no}`, { align: "left" });
-      doc
-        .font("Helvetica")
-        .fontSize(11)
-        .fillColor("#333333")
-        .text(`Town: ${town === "ALL" ? "All Towns" : town}`, {
-          align: "left",
-        });
-      doc.moveDown(1);
+    let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    let y = PAGE_HEIGHT - MARGIN;
 
-      const colRank = 40;
-      const colName = 110;
-      const colTotal = 430;
-      const rowHeight = 22;
-      let y = doc.y;
+    function drawHeader() {
+      page.drawText(`Rank Sheet - REV No. ${rev_no}`, {
+        x: MARGIN,
+        y,
+        size: 16,
+        font: fontBold,
+        color: black,
+      });
+      y -= 20;
+      page.drawText(`Town: ${town === "ALL" ? "All Towns" : town}`, {
+        x: MARGIN,
+        y,
+        size: 11,
+        font,
+        color: gray,
+      });
+      y -= 26;
 
-      doc.font("Helvetica-Bold").fontSize(11).fillColor("#000000");
-      doc.text("Rank", colRank, y);
-      doc.text("Student Name", colName, y);
-      doc.text("Total Mark", colTotal, y);
-      y += rowHeight;
-      doc
-        .moveTo(40, y - 6)
-        .lineTo(555, y - 6)
-        .strokeColor("#000000")
-        .lineWidth(0.5)
-        .stroke();
+      page.drawText("Rank", { x: COL_RANK, y, size: 11, font: fontBold, color: black });
+      page.drawText("Student Name", { x: COL_NAME, y, size: 11, font: fontBold, color: black });
+      page.drawText("Total Mark", { x: COL_TOTAL, y, size: 11, font: fontBold, color: black });
+      y -= 6;
+      page.drawLine({
+        start: { x: MARGIN, y },
+        end: { x: PAGE_WIDTH - MARGIN, y },
+        thickness: 0.5,
+        color: black,
+      });
+      y -= ROW_HEIGHT;
+    }
 
-      doc.font("Helvetica").fontSize(10.5);
-      for (const r of ranked) {
-        if (y > 780) {
-          doc.addPage();
-          y = 40;
-        }
-        doc.fillColor("#000000");
-        doc.text(String(r.rank), colRank, y);
-        doc.text(r.name, colName, y, { width: 300 });
-        doc.text(r.total.toFixed(6), colTotal, y);
-        y += rowHeight;
+    drawHeader();
+
+    for (const r of ranked) {
+      if (y < MARGIN + ROW_HEIGHT) {
+        page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+        y = PAGE_HEIGHT - MARGIN;
+        drawHeader();
       }
+      page.drawText(String(r.rank), { x: COL_RANK, y, size: 10.5, font, color: black });
+      page.drawText(truncate(r.name, 48), {
+        x: COL_NAME,
+        y,
+        size: 10.5,
+        font,
+        color: black,
+      });
+      page.drawText(r.total.toFixed(6), {
+        x: COL_TOTAL,
+        y,
+        size: 10.5,
+        font,
+        color: black,
+      });
+      y -= ROW_HEIGHT;
+    }
 
-      doc.end();
-    });
-
+    const pdfBytes = await pdfDoc.save();
     const filename = `rank_${rev_no}_${town}.pdf`.replace(/\s+/g, "_");
 
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    return new NextResponse(new Uint8Array(pdfBytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -110,4 +130,8 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
+}
+
+function truncate(s: string, max: number) {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }

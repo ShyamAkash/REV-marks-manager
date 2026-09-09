@@ -20,7 +20,7 @@ export type Record = {
 };
 
 /**
- * total = ((mcq + structured + essay) / (num_mcq + num_structured*5 + num_essay*7.5)) / 100
+ * total = ((mcq + structured + essay) / (num_mcq + num_structured*5 + num_essay*7.5)) * 100
  */
 export function calcTotal(
   rec: Pick<Record, "mcq_mark" | "structured_mark" | "essay_mark">,
@@ -36,5 +36,5 @@ export function calcTotal(
     Number(rec.mcq_mark || 0) +
     Number(rec.structured_mark || 0) +
     Number(rec.essay_mark || 0);
-  return numer / denom / 100;
+  return (numer / denom) * 100;
 }
