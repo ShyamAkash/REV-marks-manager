@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background: #050505;
+  color: #f4f4f2;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: #d8a53d;
+  color: #050505;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+/* Uniform focus ring, no soft shadows */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 1px solid #d8a53d;
+  outline-offset: 0;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.field-label {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #8c8c8c;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.field {
+  width: 100%;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  color: #f4f4f2;
+  padding: 11px 12px;
+  font-size: 15px;
+  border-radius: 2px;
+}
+
+.field:disabled {
+  opacity: 0.5;
+}
+
+.btn-primary {
+  background: #d8a53d;
+  color: #050505;
+  font-weight: 600;
+  padding: 13px;
+  border-radius: 2px;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  width: 100%;
+  text-align: center;
+}
+
+.btn-primary:disabled {
+  background: #3a3326;
+  color: #6b6b6b;
+}
+
+.btn-outline {
+  background: transparent;
+  color: #f4f4f2;
+  border: 1px solid #2a2a2a;
+  padding: 10px 14px;
+  border-radius: 2px;
+  font-size: 14px;
+}
+
+.btn-danger {
+  color: #e5484d;
+  border: 1px solid #3a1f20;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
