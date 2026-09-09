@@ -12,15 +12,13 @@
   "dependencies": {
     "@neondatabase/serverless": "^0.10.1",
     "exceljs": "^4.4.0",
-    "iconv-lite": "^0.6.3",
     "next": "15.5.25",
-    "pdfkit": "^0.15.0",
+    "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
-    "@types/pdfkit": "^0.13.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.19",
