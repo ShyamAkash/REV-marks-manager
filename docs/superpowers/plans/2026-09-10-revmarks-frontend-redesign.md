@@ -265,8 +265,9 @@ as nothing. Adds brand-deep for button fills: white on #d93708 is
 /**
  * Single source of truth for how numbers are rendered in the UI.
  *
- * Before this existed, ViewDataTab rendered totals as "72.3333" while the
- * entry form rendered the same value as "72.4%".
+ * Before this existed the same total rendered three different ways:
+ * ViewDataTab showed "72.3333", the live entry preview showed "72.33%",
+ * and the recent-entries strip showed "72.3%".
  */
 
 /** Render a percentage total: one decimal place, always suffixed with %. */
@@ -296,7 +297,7 @@ Run:
 npx tsx -e "
 import { formatTotal, formatMark } from './lib/format';
 const checks: [string, string][] = [
-  [formatTotal(72.3333), '72.4%'],
+  [formatTotal(72.3333), '72.3%'],
   [formatTotal(0), '0.0%'],
   [formatTotal(100), '100.0%'],
   [formatTotal(NaN), '0.0%'],

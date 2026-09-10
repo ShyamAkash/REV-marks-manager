@@ -153,8 +153,9 @@ live count. On desktop the hub collapses and the three become a persistent sub-n
   collapse-on-empty-blur behaviour costs a tap for no benefit. Always visible.
 - **Desktop gets a real sortable table** (Name, Mobile, MCQ, Struct, Essay, Total,
   Staff, Updated). Mobile keeps cards.
-- **One total format everywhere.** `ViewDataTab` currently shows `72.3333` while the
-  entry screen shows `72.4%`. Standardise on one decimal and a `%`.
+- **One total format everywhere.** The same total currently renders three ways:
+  `ViewDataTab` shows `72.3333`, the live entry preview shows `72.33%`, and the
+  recent-entries strip shows `72.3%`. Standardise on one decimal and a `%`.
 - **The duplicate Download button goes.** It renders twice today — above the list, and
   again below it when there are more than three records.
 - **Delete uses the shared Sheet**, not a blocking `confirm()`. Blocking dialogs also
