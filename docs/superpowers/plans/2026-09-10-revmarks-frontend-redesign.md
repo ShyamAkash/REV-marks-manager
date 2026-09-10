@@ -346,7 +346,7 @@ the same value as 72.4%. One formatter now owns both."
 - Consumes: tokens from Task 1.
 - Produces:
   - `<Button variant?: "primary"|"secondary"|"ghost"|"danger" size?: "sm"|"md"|"lg" fullWidth?: boolean loading?: boolean />` — forwards ref to `HTMLButtonElement`, extends `ButtonHTMLAttributes`.
-  - `<Card as?: "div"|"section" padded?: boolean className?: string />`
+  - `<Card padded?: boolean className?: string />` — always renders a `<div>`. No `as` polymorphism: no task in this plan needs a different element, and unused polymorphism is surface with no caller.
   - `<StatusDot tone: "ok"|"warn"|"danger"|"idle" pulse?: boolean />`
   - `<EmptyState title: string hint?: string action?: ReactNode />`
   - `<Skeleton className?: string />`
