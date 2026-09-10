@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AppNav } from "@/app/components/AppNav";
+import { ServiceWorkerHost } from "@/app/components/ServiceWorkerHost";
+import { ToastProvider } from "@/app/components/ui";
 
 export const metadata: Metadata = {
   title: "RevMarks",
@@ -34,7 +37,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-dvh bg-ink text-paper font-sans antialiased">
-        {children}
+        <ToastProvider>
+          <ServiceWorkerHost />
+          <div className="flex min-h-dvh flex-col">
+            <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-4">
+              {children}
+            </main>
+            <AppNav />
+          </div>
+        </ToastProvider>
       </body>
     </html>
   );

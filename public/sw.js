@@ -1,5 +1,5 @@
 // RevMarks Service Worker for Offline Safe Mode
-const CACHE_NAME = 'revmarks-cache-v2';
+const CACHE_NAME = 'revmarks-cache-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',

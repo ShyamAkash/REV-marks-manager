@@ -218,7 +218,12 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
   if (text.includes("DISTINCT student_name, phone_no") || (text.includes("FROM records") && text.includes("student_name IS NOT NULL AND student_name != ''"))) {
     const seen = new Set<string>();
     const results: { student_name: string; phone_no: string | null }[] = [];
+    // Honour the optional "AND town = $1" filter. Without this the mock returns
+    // every town's students while real Postgres returns one town's, so the
+    // autocomplete would look correct locally and behave differently in production.
+    const townFilter = text.includes("AND town =") ? String(params[0] ?? "") : "";
     for (const r of store.records) {
+      if (townFilter && r.town !== townFilter) continue;
       if (r.student_name && r.student_name.trim()) {
         const key = r.student_name.trim().toLowerCase();
         if (!seen.has(key)) {

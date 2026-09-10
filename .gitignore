@@ -1,0 +1,30 @@
+# dependencies
+node_modules
+
+# next.js build output
+.next/
+out/
+build/
+dist/
+
+# environment — DATABASE_URL lives here, never commit it
+.env
+.env.local
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+# local sample data and brand material (kept on disk, not in the repo)
+test files/
+
+# editor / OS junk
+~$*
+.DS_Store
+Thumbs.db
+
+# subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
