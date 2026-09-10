@@ -214,6 +214,25 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
     return [];
   }
 
+  // 6b. SELECT DISTINCT student_name, phone_no for student history
+  if (text.includes("DISTINCT student_name, phone_no") || (text.includes("FROM records") && text.includes("student_name IS NOT NULL AND student_name != ''"))) {
+    const seen = new Set<string>();
+    const results: { student_name: string; phone_no: string | null }[] = [];
+    for (const r of store.records) {
+      if (r.student_name && r.student_name.trim()) {
+        const key = r.student_name.trim().toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push({
+            student_name: r.student_name.trim(),
+            phone_no: r.phone_no ? String(r.phone_no).trim() : null,
+          });
+        }
+      }
+    }
+    return results.sort((a, b) => a.student_name.localeCompare(b.student_name));
+  }
+
   // 7. SELECT records
   if (text.includes("FROM records")) {
     let list = [...store.records];

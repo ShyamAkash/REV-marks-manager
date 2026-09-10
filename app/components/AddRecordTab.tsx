@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TOWNS } from "@/lib/towns";
 import { calcTotal, RevConfig } from "@/lib/calc";
 import { triggerHaptic } from "@/lib/haptics";
@@ -28,6 +28,29 @@ type RecentEntry = {
 
 const SESSION_KEY = "marks_session_v2";
 
+export function formatSriLankanPhone(val: string, prevPhone: string = ""): string {
+  if (!val) return "";
+  let digits = val.replace(/\D/g, "");
+
+  // If user backspaced down to "0" from something longer, allow clearing
+  if (digits === "0" && val.length < prevPhone.length) {
+    return "";
+  }
+
+  // Convert international prefix: +947... or 947... to 07...
+  if (digits.startsWith("94") && digits.length >= 3) {
+    digits = "0" + digits.slice(2);
+  }
+
+  // Auto-prefix "07" if user starts typing 7 or 9-digit number starting with 7
+  if (digits.startsWith("7")) {
+    digits = "0" + digits;
+  }
+
+  // Limit to 10 digits without inserting spaces
+  return digits.slice(0, 10);
+}
+
 export default function AddRecordTab() {
   const [town, setTown] = useState("");
   const [revId, setRevId] = useState("");
@@ -51,6 +74,24 @@ export default function AddRecordTab() {
 
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Returning student history across all revisions for 1-tap autocomplete
+  const [historyStudents, setHistoryStudents] = useState<
+    { student_name: string; phone_no: string | null }[]
+  >([]);
+
+  // Current session records for duplicate detection
+  const [sessionRecords, setSessionRecords] = useState<
+    {
+      id?: number;
+      student_name: string | null;
+      phone_no: string | null;
+      mcq_mark: number;
+      structured_mark: number;
+      essay_mark: number;
+      total: number;
+    }[]
+  >([]);
 
   // Recent entries (last 3-5 students entered)
   const [recentEntries, setRecentEntries] = useState<RecentEntry[]>([]);
@@ -109,6 +150,34 @@ export default function AddRecordTab() {
     );
   }, [mcq, structured, essay, currentRev]);
 
+  // Load returning student history across all revisions
+  useEffect(() => {
+    fetch("/api/students/history")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.students && Array.isArray(d.students)) {
+          setHistoryStudents(d.students);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch records for the active session (town + rev) for instant duplicate checking
+  const loadSessionRecords = useCallback((t: string, rId: string) => {
+    if (!t || !rId) {
+      setSessionRecords([]);
+      return;
+    }
+    fetch(`/api/records?town=${encodeURIComponent(t)}&rev_id=${rId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.records && Array.isArray(d.records)) {
+          setSessionRecords(d.records);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Load revisions and initial session
   useEffect(() => {
     fetch("/api/revs")
@@ -125,19 +194,88 @@ export default function AddRecordTab() {
           setRevId(String(s.revId));
           setCheckedBy(s.checkedBy);
           setLocked(true);
-          loadRecentEntries(String(s.revId));
+          loadRecentEntries(String(s.revId), s.town);
+          loadSessionRecords(s.town, String(s.revId));
           setTimeout(() => {
-            studentNameRef.current?.focus();
-            studentNameRef.current?.select();
+            phoneRef.current?.focus();
+            phoneRef.current?.select();
           }, 100);
         }
       } catch {}
     }
-  }, []);
+  }, [loadSessionRecords]);
+
+  // Phone input formatting and 07 auto-prefix
+  function handlePhoneChange(val: string) {
+    const formatted = formatSriLankanPhone(val, phone);
+    setPhone(formatted);
+  }
+
+  const phoneDigits = useMemo(() => phone.replace(/\D/g, ""), [phone]);
+
+  // 1-Tap Autocomplete: matches by phone number (if 4+ digits typed)
+  const phoneSuggestions = useMemo(() => {
+    if (phoneDigits.length < 4) return [];
+    return historyStudents
+      .filter((s) => {
+        if (!s.phone_no) return false;
+        const sDigits = s.phone_no.replace(/\D/g, "");
+        return sDigits.includes(phoneDigits);
+      })
+      .slice(0, 3);
+  }, [phoneDigits, historyStudents]);
+
+  const nameTrimmed = useMemo(() => studentName.trim().toLowerCase(), [studentName]);
+
+  // 1-Tap Autocomplete: matches by student name (if 2+ chars typed)
+  const nameSuggestions = useMemo(() => {
+    if (nameTrimmed.length < 2) return [];
+    return historyStudents
+      .filter((s) => s.student_name.toLowerCase().includes(nameTrimmed))
+      .slice(0, 3);
+  }, [nameTrimmed, historyStudents]);
+
+  // Apply autocomplete suggestion
+  function applyStudentSuggestion(s: { student_name: string; phone_no: string | null }) {
+    setStudentName(s.student_name);
+    if (s.phone_no) {
+      setPhone(formatSriLankanPhone(s.phone_no));
+    }
+    triggerHaptic("light");
+    mcqRef.current?.focus();
+    mcqRef.current?.select();
+  }
+
+  // Duplicate Warning for active session (Town + REV)
+  const duplicateWarning = useMemo(() => {
+    if (!locked) return null;
+    if (phoneDigits.length >= 9) {
+      const match = sessionRecords.find((r) => {
+        if (!r.phone_no) return false;
+        const rDigits = r.phone_no.replace(/\D/g, "");
+        return rDigits === phoneDigits;
+      });
+      if (match) return { type: "phone" as const, match };
+    }
+
+    if (nameTrimmed.length >= 3) {
+      const match = sessionRecords.find((r) => {
+        if (!r.student_name) return false;
+        return r.student_name.trim().toLowerCase() === nameTrimmed;
+      });
+      if (match) return { type: "name" as const, match };
+    }
+
+    return null;
+  }, [phoneDigits, nameTrimmed, sessionRecords, locked]);
 
   // Fetch recent entries when revision changes or unlocks
-  function loadRecentEntries(activeRevId: string) {
+  function loadRecentEntries(activeRevId: string, activeTown?: string) {
     if (!activeRevId) return;
+    const t = activeTown || town;
+    if (t) {
+      loadSessionRecords(t, activeRevId);
+    }
 
     // First load offline queue items for this rev
     const offlineItems = getOfflineQueue()
@@ -154,7 +292,11 @@ export default function AddRecordTab() {
         isOffline: true,
       }));
 
-    fetch(`/api/records?rev_id=${activeRevId}&limit=5`)
+    const url = t
+      ? `/api/records?town=${encodeURIComponent(t)}&rev_id=${activeRevId}&limit=5`
+      : `/api/records?rev_id=${activeRevId}&limit=5`;
+
+    fetch(url)
       .then((r) => r.json())
       .then((d) => {
         const serverRecords: RecentEntry[] = (d.records || []).slice(0, 5).map((r: any) => ({
@@ -188,10 +330,11 @@ export default function AddRecordTab() {
     );
     setLocked(true);
     triggerHaptic("light");
-    loadRecentEntries(revId);
+    loadRecentEntries(revId, town);
+    loadSessionRecords(town, revId);
     setTimeout(() => {
-      studentNameRef.current?.focus();
-      studentNameRef.current?.select();
+      phoneRef.current?.focus();
+      phoneRef.current?.select();
     }, 50);
   }
 
@@ -219,6 +362,30 @@ export default function AddRecordTab() {
 
     const calculatedTotal = calcTotal(recordPayload, currentRev);
 
+    // Update sessionRecords and history cache immediately
+    const sessionRecItem = {
+      student_name: recordPayload.student_name,
+      phone_no: recordPayload.phone_no,
+      mcq_mark: recordPayload.mcq_mark,
+      structured_mark: recordPayload.structured_mark,
+      essay_mark: recordPayload.essay_mark,
+      total: calculatedTotal,
+    };
+    setSessionRecords((prev) => [sessionRecItem, ...prev]);
+
+    if (recordPayload.student_name) {
+      setHistoryStudents((prev) => {
+        const exists = prev.some(
+          (s) => s.student_name.toLowerCase() === recordPayload.student_name!.toLowerCase()
+        );
+        if (exists) return prev;
+        return [
+          { student_name: recordPayload.student_name!, phone_no: recordPayload.phone_no },
+          ...prev,
+        ];
+      });
+    }
+
     // If offline or network fetch fails
     const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 
@@ -241,8 +408,8 @@ export default function AddRecordTab() {
       setSubmitting(false);
       setTimeout(() => setMessage(null), 2500);
       setTimeout(() => {
-        studentNameRef.current?.focus();
-        studentNameRef.current?.select();
+        phoneRef.current?.focus();
+        phoneRef.current?.select();
       }, 50);
       return;
     }
@@ -277,8 +444,8 @@ export default function AddRecordTab() {
       setMessage("Saved");
       setTimeout(() => setMessage(null), 1800);
       setTimeout(() => {
-        studentNameRef.current?.focus();
-        studentNameRef.current?.select();
+        phoneRef.current?.focus();
+        phoneRef.current?.select();
       }, 50);
     } catch (e: any) {
       // Network drop fallback
@@ -304,8 +471,8 @@ export default function AddRecordTab() {
         setMessage("Connection dropped: Saved locally (auto-syncing)");
         setTimeout(() => setMessage(null), 2500);
         setTimeout(() => {
-          studentNameRef.current?.focus();
-          studentNameRef.current?.select();
+          phoneRef.current?.focus();
+          phoneRef.current?.select();
         }, 50);
       } else {
         triggerHaptic("error");
@@ -477,6 +644,50 @@ export default function AddRecordTab() {
           !locked ? "opacity-35 pointer-events-none select-none" : ""
         }`}
       >
+        {/* Field 1: Mobile No. (First) */}
+        <div>
+          <label className="field-label">Mobile No.</label>
+          <input
+            ref={phoneRef}
+            className="field num font-mono"
+            inputMode="tel"
+            enterKeyHint="next"
+            value={phone}
+            onChange={(e) => handlePhoneChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                triggerHaptic("light");
+                studentNameRef.current?.focus();
+                studentNameRef.current?.select();
+              }
+            }}
+            placeholder="07XXXXXXXX"
+          />
+
+          {/* Autocomplete suggestions for returning student by phone */}
+          {phoneSuggestions.length > 0 && !duplicateWarning && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-1.5">
+              <span className="text-[10px] text-dim uppercase tracking-wider">Returning:</span>
+              {phoneSuggestions.map((s, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => applyStudentSuggestion(s)}
+                  className="inline-flex items-center gap-1 text-xs bg-surface/90 hover:bg-surface border border-line hover:border-gold/50 text-paper px-2.5 py-1 rounded-md transition-colors shadow-xs cursor-pointer"
+                  title="Click to auto-fill student name and phone"
+                >
+                  <span className="text-gold font-medium">⚡ {s.student_name}</span>
+                  {s.phone_no && (
+                    <span className="text-dim font-mono text-[10px]">({s.phone_no})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Field 2: Student Name (Second) */}
         <div>
           <label className="field-label">Student Name</label>
           <input
@@ -489,49 +700,79 @@ export default function AddRecordTab() {
               if (e.key === "Enter") {
                 e.preventDefault();
                 triggerHaptic("light");
-                phoneRef.current?.focus();
-                phoneRef.current?.select();
+                mcqRef.current?.focus();
+                mcqRef.current?.select();
               }
             }}
             placeholder="e.g. K. Nimal Perera"
           />
+
+          {/* Autocomplete suggestions for returning student by name */}
+          {nameSuggestions.length > 0 && !duplicateWarning && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-1.5">
+              <span className="text-[10px] text-dim uppercase tracking-wider">Returning:</span>
+              {nameSuggestions.map((s, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => applyStudentSuggestion(s)}
+                  className="inline-flex items-center gap-1 text-xs bg-surface/90 hover:bg-surface border border-line hover:border-gold/50 text-paper px-2.5 py-1 rounded-md transition-colors shadow-xs cursor-pointer"
+                  title="Click to auto-fill student name and phone"
+                >
+                  <span className="text-gold font-medium">⚡ {s.student_name}</span>
+                  {s.phone_no && (
+                    <span className="text-dim font-mono text-[10px]">({s.phone_no})</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="field-label">Mobile No.</label>
-            <input
-              ref={phoneRef}
-              className="field"
-              inputMode="tel"
-              enterKeyHint="next"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  triggerHaptic("light");
-                  mcqRef.current?.focus();
-                  mcqRef.current?.select();
-                }
-              }}
-              placeholder="e.g. 0771234567"
-            />
-          </div>
-
-          <div>
-            <label className="field-label">Total</label>
-            <div className="field flex items-center justify-between bg-surface/50 border border-line">
-              <span className="text-xs text-dim">Total:</span>
-              <span className="text-base font-normal text-paper num tracking-tight">
-                {liveTotal !== null ? `${liveTotal.toFixed(2)}%` : "0.00%"}
-              </span>
+        {/* Duplicate Warning in Active Session */}
+        {duplicateWarning && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs flex items-start gap-2.5">
+            <span className="text-amber-400 text-base leading-none shrink-0 mt-0.5">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-amber-200 flex items-center gap-1.5">
+                <span>Duplicate Warning: Paper already entered</span>
+              </div>
+              <p className="text-amber-300/90 text-[11px] mt-0.5 leading-relaxed">
+                Matched by {duplicateWarning.type === "phone" ? "Mobile No." : "Student Name"}:{" "}
+                <strong className="text-paper">{duplicateWarning.match.student_name || "Unnamed"}</strong>
+                {duplicateWarning.match.phone_no ? ` (${duplicateWarning.match.phone_no})` : ""} has already been entered for{" "}
+                <span className="text-paper">{town} · {currentRev?.rev_no || `REV ${revId}`}</span>.
+              </p>
+              <div className="text-dim font-mono text-[11px] mt-1 flex items-center gap-2">
+                <span>MCQ: {duplicateWarning.match.mcq_mark}</span>
+                <span>·</span>
+                <span>Struct: {duplicateWarning.match.structured_mark}</span>
+                <span>·</span>
+                <span>Essay: {duplicateWarning.match.essay_mark}</span>
+                <span>·</span>
+                <span className="text-amber-300 font-semibold">{duplicateWarning.match.total?.toFixed(2)}%</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Marks row with soft validation and hints */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Marks section with subtle Total display */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5 px-0.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-dim">
+              Marks
+            </span>
+            {liveTotal !== null && (
+              <span className="text-xs text-dim">
+                Total:{" "}
+                <span className="text-paper font-normal num tracking-tight">
+                  {liveTotal.toFixed(2)}%
+                </span>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
           <div>
             <div className="flex items-center justify-between">
               <label className="field-label">MCQ Mark</label>
@@ -641,6 +882,7 @@ export default function AddRecordTab() {
             )}
           </div>
         </div>
+      </div>
 
         <button
           className="btn-primary mt-1"
@@ -745,10 +987,10 @@ export default function AddRecordTab() {
               <div>
                 <label className="field-label">Mobile No.</label>
                 <input
-                  className="field"
+                  className="field num font-mono"
                   inputMode="tel"
                   value={editPhone}
-                  onChange={(e) => setEditPhone(e.target.value)}
+                  onChange={(e) => setEditPhone(formatSriLankanPhone(e.target.value, editPhone))}
                 />
               </div>
 
