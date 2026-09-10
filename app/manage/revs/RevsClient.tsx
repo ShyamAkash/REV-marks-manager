@@ -159,6 +159,14 @@ export default function RevsClient() {
 
       {editing && (
         <RevEditSheet
+          // Keyed by id so switching to a different REV remounts the sheet and
+          // reseeds its form state. RevEditSheet seeds from props with
+          // useState, which runs only on mount, and Sheet focuses its panel
+          // without trapping Tab — so a keyboard user can reach an Edit button
+          // behind the open sheet. Without this key that would leave REV A's
+          // counts in a form now bound to REV B, and saving would rewrite
+          // every student's total for REV B using REV A's question counts.
+          key={editing.id}
           rev={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
