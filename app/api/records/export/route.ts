@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
 
     const withTotals = rows.map((r: any) => ({
       staff: r.staff || "",
-      phone: r.phone_no ? r.phone_no : "No Phone no. Provided",
-      name: r.student_name ? r.student_name : "No Name Provided",
+      phone: r.phone_no ? r.phone_no : 0,
+      name: r.student_name ? r.student_name : 0,
       town: r.town,
       mcq: Number(r.mcq_mark),
       structured: Number(r.structured_mark),
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       total: calcTotal(r, rev),
     }));
 
-    withTotals.sort((a, b) => b.total - a.total);
+    withTotals.sort((a, b) => a.staff.localeCompare(b.staff));
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Sheet1");
