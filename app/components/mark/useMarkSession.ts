@@ -44,7 +44,14 @@ export function useMarkSession() {
   const startSession = useCallback((s: MarkSession) => {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
     // Remembered across sessions so the marker does not retype their own name.
-    localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
+    // Guarded because this write is new in the redesign and is a convenience
+    // only: localStorage throws in Safari private browsing and wherever site
+    // data is blocked, and an unguarded throw here would abort startSession
+    // before setSession runs — silently preventing marking from starting at
+    // all. Failing to remember a name must never cost a marking session.
+    try {
+      localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
+    } catch {}
     setSession(s);
   }, []);
 
