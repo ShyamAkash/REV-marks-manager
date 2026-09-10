@@ -741,13 +741,25 @@ export function Sheet({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // The latest onClose is held in a ref so it is NOT an effect dependency.
+  // Callers pass inline arrows (`onClose={() => setOpen(false)}`), which have a
+  // new identity every render. If onClose were in the deps below, any parent
+  // re-render while the sheet is open — a keystroke in a field inside it, or
+  // ConfirmSheet's own `loading` toggle — would tear down and re-run the
+  // effect, restoring focus to the pre-sheet trigger and yanking it out of
+  // whatever the user was typing in.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     }
 
@@ -763,7 +775,7 @@ export function Sheet({
       document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
