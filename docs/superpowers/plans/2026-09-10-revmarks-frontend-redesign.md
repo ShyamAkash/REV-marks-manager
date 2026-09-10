@@ -575,7 +575,11 @@ git commit -m "feat(ui): add Button, Card, StatusDot, EmptyState, Skeleton"
 
 import { InputHTMLAttributes, forwardRef, useId } from "react";
 
-export interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
+// `size` must be omitted from the native attributes before redeclaring it:
+// InputHTMLAttributes already declares `size?: number`, and narrowing it to
+// "md" | "lg" without the Omit is a TypeScript error under strict mode.
+export interface FieldProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   label: string;
   /** Right-aligned hint beside the label, e.g. "/50" for a max mark. */
   hint?: string;
