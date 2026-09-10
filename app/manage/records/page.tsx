@@ -1,5 +1,5 @@
-import ViewDataTab from "@/app/components/ViewDataTab";
+import RecordsClient from "./RecordsClient";
 
 export default function RecordsPage() {
-  return <ViewDataTab />;
+  return <RecordsClient />;
 }
