@@ -321,6 +321,14 @@ export default function RecordsClient() {
 
       {editing && (
         <RecordEditSheet
+          // Keyed by id so switching to a different record remounts the sheet
+          // and reseeds its form state. RecordEditSheet seeds from props with
+          // useState, which runs only on mount, and Sheet focuses its panel
+          // without trapping Tab — so a keyboard user can reach an Edit button
+          // behind the open sheet. Without this key that would leave record A's
+          // marks in a form now bound to record B, and saving would overwrite
+          // record B using record A's marks.
+          key={editing.id}
           record={editing}
           busy={busy}
           onClose={() => setEditing(null)}
