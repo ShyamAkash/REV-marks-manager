@@ -120,6 +120,7 @@ export function MarkScreen() {
       <MarkForm
         session={session}
         currentRev={currentRev}
+        entries={entries}
         onSaved={handleSaved}
       />
 

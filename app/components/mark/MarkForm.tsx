@@ -5,6 +5,13 @@ import { calcTotal, type RevConfig } from "@/lib/calc";
 import { formatTotal } from "@/lib/format";
 import { triggerHaptic } from "@/lib/haptics";
 import { addOfflineRecord } from "@/lib/offlineQueue";
+import { formatSriLankanPhone, phoneDigits } from "@/lib/phone";
+import {
+  matchByName,
+  matchByPhone,
+  useStudentHistory,
+  type HistoryStudent,
+} from "@/lib/useStudentHistory";
 import { Button, Field, useToast } from "@/app/components/ui";
 import type { MarkSession } from "./useMarkSession";
 import type { MarkEntry } from "./types";
@@ -19,10 +26,17 @@ function toNumber(value: string): number {
 export function MarkForm({
   session,
   currentRev,
+  entries,
   onSaved,
 }: {
   session: MarkSession;
   currentRev: RevConfig | null;
+  /**
+   * Records already in this session (town + REV), used to warn about a
+   * duplicate before it is saved. MarkScreen has already fetched these for the
+   * entries list, so reusing them avoids a second request for the same data.
+   */
+  entries: MarkEntry[];
   onSaved: (entry: MarkEntry) => void;
 }) {
   const toast = useToast();
@@ -33,6 +47,42 @@ export function MarkForm({
   const [structured, setStructured] = useState("");
   const [essay, setEssay] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Returning students for this town only.
+  const history = useStudentHistory(session.town);
+  const nameSuggestions = useMemo(
+    () => matchByName(history, studentName),
+    [history, studentName]
+  );
+  const phoneSuggestions = useMemo(
+    () => matchByPhone(history, phone),
+    [history, phone]
+  );
+
+  /**
+   * Warn when this student already has a record in this town + REV. Phone is
+   * checked first because it is the stronger identifier — two students can
+   * share a name, but not a number.
+   */
+  const duplicate = useMemo(() => {
+    const typedDigits = phoneDigits(phone);
+    if (typedDigits.length >= 9) {
+      const byPhone = entries.find(
+        (e) => e.phone_no && phoneDigits(e.phone_no) === typedDigits
+      );
+      if (byPhone) return { by: "mobile" as const, entry: byPhone };
+    }
+
+    const typedName = studentName.trim().toLowerCase();
+    if (typedName.length >= 3) {
+      const byName = entries.find(
+        (e) => (e.student_name ?? "").trim().toLowerCase() === typedName
+      );
+      if (byName) return { by: "name" as const, entry: byName };
+    }
+
+    return null;
+  }, [phone, studentName, entries]);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
@@ -155,30 +205,61 @@ export function MarkForm({
     next.current?.select();
   }
 
+  /** One tap fills identity only — never marks — then jumps to the first mark. */
+  function applySuggestion(s: HistoryStudent) {
+    setStudentName(s.student_name);
+    if (s.phone_no) setPhone(formatSriLankanPhone(s.phone_no));
+    triggerHaptic("light");
+    window.setTimeout(() => {
+      mcqRef.current?.focus();
+      mcqRef.current?.select();
+    }, 0);
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <Field
-        ref={nameRef}
-        label="Student name"
-        placeholder="e.g. K. Nimal Perera"
-        size="lg"
-        value={studentName}
-        enterKeyHint="next"
-        onChange={(e) => setStudentName(e.target.value)}
-        onKeyDown={(e) => advanceOn(e, phoneRef)}
-      />
+      <div className="flex flex-col gap-1.5">
+        <Field
+          ref={nameRef}
+          label="Student name"
+          placeholder="e.g. K. Nimal Perera"
+          size="lg"
+          value={studentName}
+          enterKeyHint="next"
+          autoComplete="off"
+          onChange={(e) => setStudentName(e.target.value)}
+          onKeyDown={(e) => advanceOn(e, phoneRef)}
+        />
+        <SuggestionRow items={nameSuggestions} onPick={applySuggestion} />
+      </div>
 
-      <Field
-        ref={phoneRef}
-        label="Mobile"
-        placeholder="e.g. 0771234567"
-        size="lg"
-        inputMode="tel"
-        value={phone}
-        enterKeyHint="next"
-        onChange={(e) => setPhone(e.target.value)}
-        onKeyDown={(e) => advanceOn(e, mcqRef)}
-      />
+      <div className="flex flex-col gap-1.5">
+        <Field
+          ref={phoneRef}
+          label="Mobile"
+          placeholder="e.g. 0771234567"
+          size="lg"
+          inputMode="tel"
+          value={phone}
+          enterKeyHint="next"
+          autoComplete="off"
+          onChange={(e) => setPhone(formatSriLankanPhone(e.target.value, phone))}
+          onKeyDown={(e) => advanceOn(e, mcqRef)}
+        />
+        <SuggestionRow items={phoneSuggestions} onPick={applySuggestion} />
+      </div>
+
+      {duplicate && (
+        <div className="rounded-control border border-warn/40 bg-warn/10 px-3 py-2.5">
+          <p className="text-label text-warn">
+            Already marked in {session.town} for this REV:{" "}
+            <strong className="font-semibold">
+              {duplicate.entry.student_name || "this student"}
+            </strong>{" "}
+            ({duplicate.by} matches). Saving will create a second record.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         <Field
@@ -267,6 +348,38 @@ export function MarkForm({
       <Button size="lg" fullWidth loading={saving} onClick={save}>
         Save and next
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Returning-student suggestions under a field. Rendered as buttons rather than
+ * a dropdown so they never capture the keyboard: the Enter chain through the
+ * form has to keep working untouched, so picking a suggestion is tap-only.
+ */
+function SuggestionRow({
+  items,
+  onPick,
+}: {
+  items: HistoryStudent[];
+  onPick: (s: HistoryStudent) => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((s) => (
+        <button
+          key={`${s.student_name}-${s.phone_no ?? ""}`}
+          type="button"
+          tabIndex={-1}
+          onClick={() => onPick(s)}
+          className="flex min-h-[36px] items-center gap-2 rounded-control border border-line bg-surface px-3 text-label text-dim transition-colors hover:border-brand hover:text-paper"
+        >
+          <span className="text-paper">{s.student_name}</span>
+          {s.phone_no && <span className="num text-micro text-dim">{s.phone_no}</span>}
+        </button>
+      ))}
     </div>
   );
 }
