@@ -16,6 +16,18 @@ import { Button, Field, useToast } from "@/app/components/ui";
 import type { MarkSession } from "./useMarkSession";
 import type { MarkEntry } from "./types";
 
+type MarkKey = "mcq" | "structured" | "essay";
+
+/**
+ * Written out as whole class names because Tailwind scans source text — a
+ * computed `grid-cols-${n}` would never be generated.
+ */
+const GRID_COLS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+};
+
 /** Blank marks are deliberately valid and store as 0 - students often omit details. */
 function toNumber(value: string): number {
   if (value === "") return 0;
@@ -104,9 +116,31 @@ export function MarkForm({
   const overStructured =
     maxStructured !== null && structured !== "" && Number(structured) > maxStructured;
   const overEssay = maxEssay !== null && essay !== "" && Number(essay) > maxEssay;
-  const anyOver = overMcq || overStructured || overEssay;
+  /**
+   * A paper that has none of a question type gets no input for it. Some papers
+   * have no structured essays, so the REV is configured with 0 — showing a box
+   * that can only ever be 0 costs the marker a field in the Enter chain for
+   * nothing.
+   *
+   * While currentRev is still loading every field shows: defaulting to visible
+   * means a slow load never hides an input the marker needs, whereas defaulting
+   * to hidden would briefly lose fields on every session start.
+   */
+  const showMcq = !currentRev || Number(currentRev.num_mcq) > 0;
+  const showStructured = !currentRev || Number(currentRev.num_structured) > 0;
+  const showEssay = !currentRev || Number(currentRev.num_essay) > 0;
 
-  const allMarksEntered = mcq !== "" && structured !== "" && essay !== "";
+  const anyOver =
+    (showMcq && overMcq) ||
+    (showStructured && overStructured) ||
+    (showEssay && overEssay);
+
+  // Only the fields actually on screen count towards "all marks in".
+  const allMarksEntered =
+    (!showMcq || mcq !== "") &&
+    (!showStructured || structured !== "") &&
+    (!showEssay || essay !== "") &&
+    (showMcq || showStructured || showEssay);
 
   const liveTotal = useMemo(() => {
     if (!currentRev) return 0;
@@ -205,14 +239,59 @@ export function MarkForm({
     next.current?.select();
   }
 
+  /**
+   * The Enter chain runs over whichever mark fields this REV actually has, so
+   * a paper with no structured essays goes MCQ -> Essay -> save with nothing
+   * to tab past.
+   */
+  const visibleMarks: MarkKey[] = [
+    ...(showMcq ? (["mcq"] as const) : []),
+    ...(showStructured ? (["structured"] as const) : []),
+    ...(showEssay ? (["essay"] as const) : []),
+  ];
+
+  const markRefs: Record<MarkKey, React.RefObject<HTMLInputElement | null>> = {
+    mcq: mcqRef,
+    structured: structuredRef,
+    essay: essayRef,
+  };
+
+  function focusMark(key: MarkKey) {
+    triggerHaptic("light");
+    markRefs[key].current?.focus();
+    markRefs[key].current?.select();
+  }
+
+  /** "done" on the last visible mark so phone keyboards show the right key. */
+  function enterHintFor(key: MarkKey): "next" | "done" {
+    const i = visibleMarks.indexOf(key);
+    return i > -1 && i < visibleMarks.length - 1 ? "next" : "done";
+  }
+
+  function advanceFromMark(e: React.KeyboardEvent, key: MarkKey) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const next = visibleMarks[visibleMarks.indexOf(key) + 1];
+    if (next) focusMark(next);
+    else void save();
+  }
+
+  /** Mobile hands off to the first mark this REV has — or saves, if it has none. */
+  function advanceFromPhone(e: React.KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const first = visibleMarks[0];
+    if (first) focusMark(first);
+    else void save();
+  }
+
   /** One tap fills identity only — never marks — then jumps to the first mark. */
   function applySuggestion(s: HistoryStudent) {
     setStudentName(s.student_name);
     if (s.phone_no) setPhone(formatSriLankanPhone(s.phone_no));
-    triggerHaptic("light");
     window.setTimeout(() => {
-      mcqRef.current?.focus();
-      mcqRef.current?.select();
+      const first = visibleMarks[0];
+      if (first) focusMark(first);
     }, 0);
   }
 
@@ -244,7 +323,7 @@ export function MarkForm({
           enterKeyHint="next"
           autoComplete="off"
           onChange={(e) => setPhone(formatSriLankanPhone(e.target.value, phone))}
-          onKeyDown={(e) => advanceOn(e, mcqRef)}
+          onKeyDown={advanceFromPhone}
         />
         <SuggestionRow items={phoneSuggestions} onPick={applySuggestion} />
       </div>
@@ -261,7 +340,17 @@ export function MarkForm({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
+      {visibleMarks.length === 0 ? (
+        <div className="rounded-control border border-warn/40 bg-warn/10 px-3 py-2.5">
+          <p className="text-label text-warn">
+            {currentRev?.rev_no ?? "This REV"} has no MCQs, structured essays or
+            essays configured, so there is nothing to mark. Set its question
+            counts under Manage &rarr; REV Numbers.
+          </p>
+        </div>
+      ) : (
+      <div className={`grid gap-2 ${GRID_COLS[visibleMarks.length]}`}>
+        {showMcq && (
         <Field
           ref={mcqRef}
           label="MCQ"
@@ -270,7 +359,7 @@ export function MarkForm({
           className="num"
           inputMode="decimal"
           value={mcq}
-          enterKeyHint="next"
+          enterKeyHint={enterHintFor("mcq")}
           error={overMcq ? "Over max" : undefined}
           onChange={(e) => {
             setMcq(e.target.value);
@@ -278,8 +367,10 @@ export function MarkForm({
               triggerHaptic("warning");
             }
           }}
-          onKeyDown={(e) => advanceOn(e, structuredRef)}
+          onKeyDown={(e) => advanceFromMark(e, "mcq")}
         />
+        )}
+        {showStructured && (
         <Field
           ref={structuredRef}
           label="Struct"
@@ -288,7 +379,7 @@ export function MarkForm({
           className="num"
           inputMode="decimal"
           value={structured}
-          enterKeyHint="next"
+          enterKeyHint={enterHintFor("structured")}
           error={overStructured ? "Over max" : undefined}
           onChange={(e) => {
             setStructured(e.target.value);
@@ -296,8 +387,10 @@ export function MarkForm({
               triggerHaptic("warning");
             }
           }}
-          onKeyDown={(e) => advanceOn(e, essayRef)}
+          onKeyDown={(e) => advanceFromMark(e, "structured")}
         />
+        )}
+        {showEssay && (
         <Field
           ref={essayRef}
           label="Essay"
@@ -306,7 +399,7 @@ export function MarkForm({
           className="num"
           inputMode="decimal"
           value={essay}
-          enterKeyHint="done"
+          enterKeyHint={enterHintFor("essay")}
           error={overEssay ? "Over max" : undefined}
           onChange={(e) => {
             setEssay(e.target.value);
@@ -314,14 +407,11 @@ export function MarkForm({
               triggerHaptic("warning");
             }
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void save();
-            }
-          }}
+          onKeyDown={(e) => advanceFromMark(e, "essay")}
         />
+        )}
       </div>
+      )}
 
       <div
         className={[
