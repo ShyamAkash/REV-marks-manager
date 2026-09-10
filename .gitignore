@@ -25,3 +25,6 @@ test files/
 ~$*
 .DS_Store
 Thumbs.db
+
+# subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/

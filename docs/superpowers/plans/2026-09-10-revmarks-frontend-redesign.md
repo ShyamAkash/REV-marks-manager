@@ -2734,18 +2734,19 @@ export default function RecordsClient() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select
-              label="Sort"
-              placeholder="Modified"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-              options={[
-                { value: "modified", label: "Modified" },
-                { value: "total_desc", label: "Total high to low" },
-                { value: "total_asc", label: "Total low to high" },
-              ]}
-              className="sm:w-52"
-            />
+            <div className="sm:w-52">
+              <Select
+                label="Sort"
+                placeholder="Modified"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as Sort)}
+                options={[
+                  { value: "modified", label: "Modified" },
+                  { value: "total_desc", label: "Total high to low" },
+                  { value: "total_asc", label: "Total low to high" },
+                ]}
+              />
+            </div>
             <Button variant="secondary" onClick={exportSheet}>
               Export xlsx
             </Button>
