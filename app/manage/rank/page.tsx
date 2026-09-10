@@ -1,5 +1,5 @@
-import RankSheetTab from "@/app/components/RankSheetTab";
+import RankClient from "./RankClient";
 
 export default function RankPage() {
-  return <RankSheetTab />;
+  return <RankClient />;
 }
