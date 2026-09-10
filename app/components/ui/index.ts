@@ -6,3 +6,7 @@ export { StatusDot } from "./StatusDot";
 export type { Tone } from "./StatusDot";
 export { EmptyState } from "./EmptyState";
 export { Skeleton } from "./Skeleton";
+export { Field } from "./Field";
+export type { FieldProps } from "./Field";
+export { Select } from "./Select";
+export type { SelectProps, SelectOption } from "./Select";
