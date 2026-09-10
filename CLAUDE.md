@@ -74,25 +74,40 @@ Marks entry must survive a dead connection mid-session, so writes have two paths
 fails. Queued items carry a client-generated `tempId`; recent-entry lists key off `id ?? tempId` and
 flag queued rows as offline.
 
-### Two UI components carry non-UI responsibilities
+### Offline sync and service-worker registration run app-wide
 
-This is the least discoverable thing in the codebase — do not delete or restructure these without
-rehoming their side effects:
+`lib/useOfflineSync.ts` owns queue draining — on `online` events, on a 15s interval, and on demand.
+`lib/useServiceWorker.ts` registers `public/sw.js` in production and, in development, actively
+*unregisters* any live worker: a stale one intercepts RSC payload fetches and breaks local
+navigation. That unregister is deliberate; do not "simplify" it into an unconditional register.
 
-- `app/components/OfflineStatusBanner.tsx` owns queue syncing: on `online` events, on a 15s interval,
-  and on demand. It renders nothing when online with an empty queue.
-- `app/components/PWAInstallBanner.tsx` registers `public/sw.js`. Nothing else does.
+Both run from the root layout via `ServiceWorkerHost`, a null-rendering client component in
+`app/layout.tsx` (the layout itself is a server component and cannot call a hook). Display is
+separate and contextual: `OfflineIndicator` renders inline in Mark mode's session bar and as a
+banner on Manage routes.
+
+Each `useOfflineSync()` call installs its own listeners and interval, so mount at most one
+`OfflineIndicator` per rendered route.
+
+Before the redesign both engines lived inside banner components rendered only by `app/page.tsx`,
+so navigating away from the home screen silently stopped queue syncing.
 
 `public/sw.js` is network-first with cache fallback and deliberately skips `/api/*`, `/_next/*`, and
 RSC payloads — caching those breaks navigation. Bump `CACHE_NAME` when changing it.
 
 ### Session lock
 
-`AddRecordTab` persists `{town, revId, checkedBy}` to `sessionStorage["marks_session_v2"]` and
-"locks" the header. The entry form is disabled until a session is started, and `staff` on every
-record comes from the locked `checkedBy`. Fields chain on Enter (name → phone → mcq → structured →
-essay → submit) with `inputMode`/`enterKeyHint` set for phone keyboards — preserve that chain, it is
-the core of the marking loop.
+`app/components/mark/useMarkSession.ts` persists `{town, revId, checkedBy}` to
+`sessionStorage["marks_session_v2"]`. The key and shape are unchanged from before the redesign on
+purpose, so anyone mid-session survives a deploy. `staff` on every record comes from the locked
+`checkedBy`.
+
+`SessionStart` gates entry behind town + REV + name; `MarkForm` chains fields on Enter (name → phone
+→ mcq → structured → essay → save) with `inputMode`/`enterKeyHint` set for phone keyboards. Preserve
+that chain — it is the core of the marking loop, and `Field` forwards refs specifically to support it.
+
+Blank marks are valid and save as `0`; the save button is never disabled for missing marks. Marks
+above their maximum warn but still save. Both are deliberate.
 
 ### API surface
 
@@ -133,8 +148,10 @@ Open items:
 - Number formatting goes through `lib/format.ts`: `formatTotal()` for percentages (0–100%),
   `formatMark()` for raw mark values.
 - Brand palette, sampled from the ictfromabc / 2028 Theory material: near-black `#050505`, off-white
-  `#f4f4f2`, accent orange `#dd390b`. The accent is only 4.09:1 against white as a button fill —
-  below WCAG AA — so prefer a brighter tint for small orange text.
+  `#f4f4f2`, accent orange `#dd390b`. Contrast is measured, not guessed: off-white on `#dd390b` is
+  4.09:1 and fails WCAG AA, and pure white on it is 4.5021:1 — passing by 0.002, too close to rely
+  on. So button fills use `brand-deep` `#d93708` with pure white (4.67:1), and small orange text on
+  dark uses `brand-hot` `#ff6b3d` (7.2:1).
 - `lib/towns.ts` is a hardcoded `as const` list. Adding a town is a code change, not data.
 - API handlers wrap everything in try/catch and return `{ error: message }` with a status; clients
   read `.error` off the JSON. Keep that shape.
