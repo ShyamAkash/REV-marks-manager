@@ -6,7 +6,6 @@ import { formatTotal } from "@/lib/format";
 import { getOfflineQueue } from "@/lib/offlineQueue";
 import { Button, Card, Skeleton } from "@/app/components/ui";
 import { OfflineIndicator } from "@/app/components/OfflineIndicator";
-import { InstallPrompt } from "@/app/components/InstallPrompt";
 import { MarkForm } from "./MarkForm";
 import { SessionEntriesSheet } from "./SessionEntriesSheet";
 import { SessionStart } from "./SessionStart";
@@ -94,7 +93,6 @@ export function MarkScreen() {
             this is exactly where they need to see that those marks are waiting
             and watch them go. */}
         <OfflineIndicator variant="banner" />
-        <InstallPrompt />
         <SessionStart revs={revs} onStart={startSession} />
       </div>
     );
