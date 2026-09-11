@@ -1,12 +1,20 @@
 -- Run this once against your Neon database before using the app.
 
+-- updated_at moves whenever a REV's name or question counts are edited
+-- (PUT /api/revs), and is the only thing that moves. Totals are derived from
+-- the question counts, so an edit changes every student's percentage for that
+-- REV - this is how a client detects that. It exists because the old signal was
+-- to stamp now() onto every record of the REV, which also flattened
+-- records.updated_at, the default sort key for the records list, and lost the
+-- real order of entry permanently.
 CREATE TABLE IF NOT EXISTS rev_numbers (
   id SERIAL PRIMARY KEY,
   rev_no TEXT UNIQUE NOT NULL,
   num_mcq INTEGER NOT NULL DEFAULT 0,
   num_structured INTEGER NOT NULL DEFAULT 0,
   num_essay INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS records (

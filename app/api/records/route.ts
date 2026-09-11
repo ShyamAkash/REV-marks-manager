@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { errorStatus, sql } from "@/lib/db";
 import { calcTotal } from "@/lib/calc";
-import { findDuplicate } from "@/lib/duplicates";
+import { findExistingRecord } from "@/lib/duplicates.server";
 import { upsertStudent } from "@/lib/students";
 
 export const dynamic = "force-dynamic";
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ records, rev });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
 }
 
@@ -124,14 +124,19 @@ export async function POST(req: NextRequest) {
     // and flagged `duplicate_of`, which the sync message turns into a notice.
     // A replay is excluded from its own comparison, or a record already stored
     // by an earlier attempt would match itself.
-    const sameRev = await db(
-      `SELECT * FROM records WHERE town = $1 AND rev_id = $2`,
-      [town, rev_id]
-    );
-    const match = findDuplicate(
-      sameRev.filter((r: any) => !client_temp_id || r.client_temp_id !== client_temp_id),
-      { student_name, phone_no }
-    );
+    //
+    // The question goes to the database as a WHERE clause. This used to read
+    // every row in the town + REV and filter them in JS, so a busy REV sent
+    // several hundred records across the wire on every single save.
+    // findExistingRecord still hands the verdict to findDuplicate, so the rule
+    // itself is unchanged.
+    const match = await findExistingRecord(db, {
+      town,
+      rev_id,
+      student_name,
+      phone_no,
+      excludeClientTempId: client_temp_id,
+    });
     if (match && !client_temp_id) {
       return NextResponse.json(
         { error: "This student already has a record for this REV.", existing: match.record },
@@ -173,6 +178,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ record: rows[0], ...flagged });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
 }

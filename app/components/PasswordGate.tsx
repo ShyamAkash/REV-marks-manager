@@ -11,8 +11,16 @@ import React, {
 import { Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
 import { Button, Field } from "@/app/components/ui";
 
-const AUTH_TOKEN_KEY = "revmarks_auth_token";
+/**
+ * "This device has been unlocked" - a hint, not a credential. The credential is
+ * the httpOnly `revmarks_auth` cookie, which page scripts cannot read; it is
+ * what middleware.ts checks on every /api/* request. This flag exists so the
+ * app opens straight into Mark mode with no connection, where asking the server
+ * is not an option.
+ */
 const AUTH_UNLOCKED_KEY = "revmarks_auth_unlocked";
+/** The pre-httpOnly scheme kept the token itself here. Migrated away on mount. */
+const LEGACY_TOKEN_KEY = "revmarks_auth_token";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -41,54 +49,66 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
 
   // Check saved device credentials on mount
   useEffect(() => {
+    let cancelled = false;
+
+    let unlocked = false;
     try {
-      const localToken = localStorage.getItem(AUTH_TOKEN_KEY);
-      let cookieToken: string | null = null;
-      if (typeof document !== "undefined") {
-        const match = document.cookie.match(/(?:^|;\s*)revmarks_auth=([^;]+)/);
-        cookieToken = match ? decodeURIComponent(match[1]) : null;
+      // The old scheme stored the token in localStorage and set the cookie from
+      // JS. The cookie it left behind holds the same value the server issues, so
+      // it still passes middleware - only the local bookkeeping moves.
+      if (localStorage.getItem(LEGACY_TOKEN_KEY)) {
+        localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
+        localStorage.removeItem(LEGACY_TOKEN_KEY);
       }
-
-      const existingToken = localToken || cookieToken;
-
-      if (existingToken) {
-        // Device already unlocked - immediately authenticate without blocking
-        setStatus("authenticated");
-        if (localToken && !cookieToken) {
-          document.cookie = `revmarks_auth=${encodeURIComponent(
-            localToken
-          )}; path=/; max-age=31536000; SameSite=Lax`;
-        } else if (cookieToken && !localToken) {
-          localStorage.setItem(AUTH_TOKEN_KEY, cookieToken);
-          localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
-        }
-
-        // Background check: if online, verify that password has not been changed on server
-        if (navigator.onLine) {
-          fetch("/api/auth/verify", {
-            headers: { Authorization: `Bearer ${existingToken}` },
-          })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data && data.authenticated === false) {
-                // Server password was modified — revoke access on this device
-                localStorage.removeItem(AUTH_TOKEN_KEY);
-                localStorage.removeItem(AUTH_UNLOCKED_KEY);
-                document.cookie = "revmarks_auth=; Max-Age=0; path=/;";
-                setStatus("locked");
-                setError("Server access password was updated. Please enter the new password.");
-              }
-            })
-            .catch(() => {
-              // Ignore network drops; keep offline access valid
-            });
-        }
-      } else {
-        setStatus("locked");
-      }
+      unlocked = localStorage.getItem(AUTH_UNLOCKED_KEY) === "true";
     } catch {
-      setStatus("locked");
+      // localStorage unavailable (Safari private browsing): fall through to the
+      // server check, and to the password screen if that cannot be reached.
     }
+
+    // Show the app immediately rather than blocking on the network; the check
+    // below revokes access if the password has since been changed.
+    if (unlocked) {
+      setStatus("authenticated");
+    } else if (typeof navigator !== "undefined" && !navigator.onLine) {
+      // Never unlocked here and no way to ask. Nothing to do but prompt.
+      setStatus("locked");
+      return;
+    }
+
+    // No Authorization header: the token is in an httpOnly cookie the browser
+    // attaches itself, and the page can no longer read it.
+    fetch("/api/auth/verify")
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data && data.authenticated) {
+          try {
+            localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
+          } catch {}
+          setStatus("authenticated");
+          return;
+        }
+        // Either this device was never unlocked, or APP_PASSWORD was changed
+        // and the cookie it holds no longer matches.
+        try {
+          localStorage.removeItem(AUTH_UNLOCKED_KEY);
+        } catch {}
+        setStatus("locked");
+        if (unlocked) {
+          setError(
+            "Server access password was updated. Please enter the new password."
+          );
+        }
+      })
+      .catch(() => {
+        // Ignore network drops; keep offline access valid.
+        if (!cancelled && !unlocked) setStatus("locked");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Autofocus password input when locked
@@ -121,14 +141,11 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
 
       const data = await res.json();
 
-      if (res.ok && data.success && data.token) {
-        // Save to localStorage & cookie for 1 year so user is not prompted again
+      if (res.ok && data.success) {
+        // The server has already set the httpOnly cookie on this response. All
+        // that is kept here is the flag that lets the app open offline next time.
         try {
-          localStorage.setItem(AUTH_TOKEN_KEY, data.token);
           localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
-          document.cookie = `revmarks_auth=${encodeURIComponent(
-            data.token
-          )}; path=/; max-age=31536000; SameSite=Lax`;
         } catch {
           // continue even if localStorage fails
         }
@@ -148,8 +165,11 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
 
   const lockDevice = useCallback(async () => {
     try {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(AUTH_UNLOCKED_KEY);
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+      // Only the server can clear the httpOnly cookie - that is what the DELETE
+      // below is for. This assignment clears a leftover JS-set one from the
+      // previous scheme.
       document.cookie = "revmarks_auth=; Max-Age=0; path=/;";
       await fetch("/api/auth/verify", { method: "DELETE" }).catch(() => {});
     } catch {
