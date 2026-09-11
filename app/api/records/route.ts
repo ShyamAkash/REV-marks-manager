@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
     const town = searchParams.get("town") || "";
     const revIdParam = searchParams.get("rev_id") || "";
     const search = (searchParams.get("search") || "").trim();
-    const sort = searchParams.get("sort") || "modified"; // "modified" | "total_asc" | "total_desc"
+    const sort = searchParams.get("sort") || "modified_desc"; // "modified_desc" | "modified_asc" | "total_desc" | "total_asc" | "modified"
+    const orderDirection = sort === "modified_asc" ? "ASC" : "DESC";
 
     if (!town || !revIdParam) {
       return NextResponse.json({ records: [], rev: null });
@@ -34,14 +35,14 @@ export async function GET(req: NextRequest) {
         `SELECT * FROM records
          WHERE town = $1 AND rev_id = $2
            AND (student_name ILIKE $3 OR phone_no ILIKE $3)
-         ORDER BY updated_at DESC`,
+         ORDER BY updated_at ${orderDirection}`,
         [town, rev_id, like]
       );
     } else {
       rows = await db(
         `SELECT * FROM records
          WHERE town = $1 AND rev_id = $2
-         ORDER BY updated_at DESC`,
+         ORDER BY updated_at ${orderDirection}`,
         [town, rev_id]
       );
     }
@@ -55,9 +56,28 @@ export async function GET(req: NextRequest) {
     }));
 
     if (sort === "total_desc") {
-      records.sort((a: any, b: any) => b.total - a.total);
+      records.sort(
+        (a: any, b: any) =>
+          b.total - a.total ||
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
     } else if (sort === "total_asc") {
-      records.sort((a: any, b: any) => a.total - b.total);
+      records.sort(
+        (a: any, b: any) =>
+          a.total - b.total ||
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
+    } else if (sort === "modified_asc") {
+      records.sort(
+        (a: any, b: any) =>
+          new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+      );
+    } else {
+      // modified_desc or "modified" (newest first)
+      records.sort(
+        (a: any, b: any) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
     }
 
     return NextResponse.json({ records, rev });
@@ -78,7 +98,7 @@ export async function POST(req: NextRequest) {
     const structured_mark = Number(body.structured_mark) || 0;
     const essay_mark = Number(body.essay_mark) || 0;
     // Set only by replays from the offline queue; a record entered while online
-    // has no client id and stays NULL. See idx_records_client_temp_id in schema.sql.
+    // has no client id and stays NULL. See migration_client_temp_id.sql.
     const client_temp_id = body.client_temp_id
       ? String(body.client_temp_id).trim()
       : null;

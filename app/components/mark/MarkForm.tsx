@@ -161,8 +161,8 @@ export function MarkForm({
     setStructured("");
     setEssay("");
     window.setTimeout(() => {
-      nameRef.current?.focus();
-      nameRef.current?.select();
+      phoneRef.current?.focus();
+      phoneRef.current?.select();
     }, 50);
   }
 
@@ -190,12 +190,6 @@ export function MarkForm({
       resetAndRefocus();
     }
 
-    if (!navigator.onLine) {
-      queueOffline("Saved offline");
-      setSaving(false);
-      return;
-    }
-
     try {
       const res = await fetch("/api/records", {
         method: "POST",
@@ -214,9 +208,10 @@ export function MarkForm({
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to save";
       const networkDown =
-        !navigator.onLine ||
+        (typeof navigator !== "undefined" && !navigator.onLine) ||
         message.includes("Failed to fetch") ||
-        message.includes("NetworkError");
+        message.includes("NetworkError") ||
+        message.includes("Load failed");
       if (networkDown) {
         queueOffline("Connection lost - saved offline");
       } else {
@@ -276,8 +271,8 @@ export function MarkForm({
     else void save();
   }
 
-  /** Mobile hands off to the first mark this REV has — or saves, if it has none. */
-  function advanceFromPhone(e: React.KeyboardEvent) {
+  /** Student name hands off to the first mark this REV has — or saves, if it has none. */
+  function advanceFromName(e: React.KeyboardEvent) {
     if (e.key !== "Enter") return;
     e.preventDefault();
     const first = visibleMarks[0];
@@ -299,21 +294,6 @@ export function MarkForm({
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Field
-          ref={nameRef}
-          label="Student name"
-          placeholder="e.g. K. Nimal Perera"
-          size="lg"
-          value={studentName}
-          enterKeyHint="next"
-          autoComplete="off"
-          onChange={(e) => setStudentName(e.target.value)}
-          onKeyDown={(e) => advanceOn(e, phoneRef)}
-        />
-        <SuggestionRow items={nameSuggestions} onPick={applySuggestion} />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Field
           ref={phoneRef}
           label="Mobile"
           placeholder="e.g. 0771234567"
@@ -323,9 +303,24 @@ export function MarkForm({
           enterKeyHint="next"
           autoComplete="off"
           onChange={(e) => setPhone(formatSriLankanPhone(e.target.value, phone))}
-          onKeyDown={advanceFromPhone}
+          onKeyDown={(e) => advanceOn(e, nameRef)}
         />
         <SuggestionRow items={phoneSuggestions} onPick={applySuggestion} />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Field
+          ref={nameRef}
+          label="Student name"
+          placeholder="e.g. K. Nimal Perera"
+          size="lg"
+          value={studentName}
+          enterKeyHint={visibleMarks.length > 0 ? "next" : "done"}
+          autoComplete="off"
+          onChange={(e) => setStudentName(e.target.value)}
+          onKeyDown={advanceFromName}
+        />
+        <SuggestionRow items={nameSuggestions} onPick={applySuggestion} />
       </div>
 
       {duplicate && (

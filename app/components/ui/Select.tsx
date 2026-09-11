@@ -11,7 +11,7 @@ export interface SelectProps
   extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   options: SelectOption[];
-  placeholder?: string;
+  placeholder?: string | null;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
@@ -32,7 +32,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         className={["field", className].join(" ")}
         {...rest}
       >
-        <option value="">{placeholder}</option>
+        {placeholder ? <option value="">{placeholder}</option> : null}
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

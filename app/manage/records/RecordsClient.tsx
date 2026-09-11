@@ -32,7 +32,7 @@ interface Rec {
   total: number;
 }
 
-type Sort = "modified" | "total_desc" | "total_asc";
+type Sort = "modified_desc" | "modified_asc" | "total_desc" | "total_asc" | "modified";
 
 export default function RecordsClient() {
   const toast = useToast();
@@ -41,7 +41,7 @@ export default function RecordsClient() {
   const [town, setTown] = useState("");
   const [revId, setRevId] = useState("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<Sort>("modified");
+  const [sort, setSort] = useState<Sort>("modified_desc");
 
   const [records, setRecords] = useState<Rec[]>([]);
   const [loading, setLoading] = useState(false);
@@ -180,13 +180,14 @@ export default function RecordsClient() {
             <div className="sm:w-52">
               <Select
                 label="Sort"
-                placeholder="Modified"
+                placeholder={null}
                 value={sort}
                 onChange={(e) => setSort(e.target.value as Sort)}
                 options={[
-                  { value: "modified", label: "Modified" },
-                  { value: "total_desc", label: "Total high to low" },
-                  { value: "total_asc", label: "Total low to high" },
+                  { value: "modified_desc", label: "Modified  ↓" },
+                  { value: "modified_asc", label: "Modified  ↑" },
+                  { value: "total_desc", label: "Total  ↓" },
+                  { value: "total_asc", label: "Total  ↑" },
                 ]}
               />
             </div>
