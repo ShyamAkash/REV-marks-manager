@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { errorStatus, sql } from "@/lib/db";
+import { findExistingRecord } from "@/lib/duplicates.server";
 import { upsertStudent } from "@/lib/students";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,42 @@ export async function PUT(
     const staff = body.staff !== undefined ? String(body.staff).trim() : undefined;
 
     const db = sql();
+
+    // Which town and REV this record sits in - needed to apply the duplicate
+    // rule, and neither is editable here. Read first so a missing record is a
+    // 404 rather than an update that quietly matches nothing.
+    const currentRows = await db(
+      `SELECT id, town, rev_id FROM records WHERE id = $1`,
+      [id]
+    );
+    const current = currentRows[0];
+    if (!current) {
+      return NextResponse.json({ error: "Record not found." }, { status: 404 });
+    }
+
+    // One record per student per town + REV, the same rule POST enforces.
+    // Without this, editing a record to carry another student's mobile number
+    // went straight through and left the pair to be found by hand later.
+    // The record being edited is excluded, or every save would collide with
+    // itself; a match therefore means a genuinely different student's row.
+    const clash = await findExistingRecord(db, {
+      town: current.town,
+      rev_id: Number(current.rev_id),
+      student_name,
+      phone_no,
+      excludeId: id,
+    });
+    if (clash) {
+      return NextResponse.json(
+        {
+          error:
+            "Another record for this student already exists in this town and REV.",
+          existing: clash.record,
+        },
+        { status: 409 }
+      );
+    }
+
     const rows = await db(
       `UPDATE records
        SET student_name = $1,
@@ -35,6 +72,7 @@ export async function PUT(
     );
 
     if (!rows[0]) {
+      // Deleted between the read above and this update.
       return NextResponse.json({ error: "Record not found." }, { status: 404 });
     }
 
@@ -49,7 +87,7 @@ export async function PUT(
 
     return NextResponse.json({ record: rows[0] });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
 }
 
@@ -64,6 +102,6 @@ export async function DELETE(
     await db(`DELETE FROM records WHERE id = $1`, [id]);
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
 }

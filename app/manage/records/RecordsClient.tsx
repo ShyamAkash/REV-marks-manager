@@ -120,12 +120,18 @@ export default function RecordsClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-      if (!res.ok) throw new Error("Failed to update");
+      if (!res.ok) {
+        // 409 means this edit would give the student a second record in the
+        // same town + REV - usually a mobile number typed onto the wrong row.
+        // The sheet stays open with the values intact so it can be corrected.
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update");
+      }
       setEditing(null);
       toast("Record updated");
       await load();
-    } catch {
-      toast("Could not update record", "danger");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not update record", "danger");
     } finally {
       setBusy(false);
     }
