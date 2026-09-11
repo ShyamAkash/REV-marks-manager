@@ -39,17 +39,26 @@ from an older local copy and quietly revert recent edits (one restored a comment
 removed migration). After pulling, read `git diff <old>..origin/main` for regressions, not just the
 new feature.
 
-## Running without a database
+## Required environment
 
-`sql()` in `lib/db.ts` returns an **in-memory mock** when `DATABASE_URL` is unset (or the Neon client
-fails to initialise), seeded with three REV rows. So `npm run dev` works with zero setup; there is no
-local `.env`, so local dev is always mock mode. Mock data lives in a `globalThis` singleton and
-disappears on restart.
+Both of these must be set before the app does anything useful, locally included:
 
-A real Neon query that throws is **no longer** swallowed into the mock — it propagates, and the route
-returns `{ error }` with a 500. (Older code fell back to mock data on any query error, so a "working"
-screen proved nothing; that is gone.) `mockQuery` pattern-matches SQL text, so a new query shape,
-such as a new `ORDER BY`, needs a matching branch there or it silently misbehaves in dev.
+| Variable | Without it |
+|---|---|
+| `DATABASE_URL` | `sql()` throws `DatabaseOfflineError`; every route answers 503 "Database offline" |
+| `APP_PASSWORD` | `getAppPassword()` throws; the gate and every `/api/*` request answer 500 |
+
+There is no in-memory mock and no default password any more. `sql()` in `lib/db.ts` used to return a
+seeded `globalThis` store when `DATABASE_URL` was unset, so `npm run dev` "worked" with nothing
+behind it — marks appeared to save and vanished on restart, and every new query shape needed a
+hand-written branch in `mockQuery` or it silently misbehaved in dev only. `lib/auth.ts` likewise used
+to fall back to `1234`. Both are gone; a missing variable is now a loud, specific error.
+
+So local dev needs a `.env` with a real `DATABASE_URL` (point it at Neon) and an `APP_PASSWORD`.
+A Neon query that throws propagates untouched — a failing database is never papered over with data
+that is not really stored.
+
+`errorStatus(err)` in `lib/db.ts` is what picks 503 over 500 in each route's catch block.
 
 ## Architecture
 
@@ -67,8 +76,17 @@ The `records` table stores only raw marks. Every consumer recomputes the total o
 the per-question weights for structured and essay questions.
 
 The load-bearing implication: **editing a REV's question counts retroactively changes every total for
-that REV**, everywhere. `app/api/revs/route.ts` PUT deliberately touches `records.updated_at` after
-such an edit so polling clients notice. If you change the formula, change it in `lib/calc.ts` only.
+that REV**, everywhere. `app/api/revs/route.ts` PUT signals that by moving **`rev_numbers.updated_at`**,
+returned by `GET /api/revs`. It must never touch `records.updated_at` again: that column is also the
+default sort key for the records list (`modified_desc`), so the old
+`UPDATE records SET updated_at = now() WHERE rev_id = $1` flattened every record of a REV to one
+instant and destroyed the real order of entry, permanently, for something as small as fixing a typo
+in a question count. If you change the formula, change it in `lib/calc.ts` only.
+
+For the same reason `POST /api/revs` **creates only**. It used to be `ON CONFLICT (rev_no) DO UPDATE`,
+which turned "Add a REV" into a silent reconfigure of a REV that already had marks against it. It now
+answers 409 + `existing`, and changing a live REV goes through PUT and the edit sheet that warns about
+the consequence.
 
 `rev_id` is a foreign key to `rev_numbers.id`, not the display string. `rev_no` (e.g. `"REV 01"`) is
 for humans. (Installs predating that change were upgraded by `migration_rev_id.sql`, since removed
@@ -142,16 +160,41 @@ so navigating away from the home screen silently stopped queue syncing.
 `public/sw.js` is network-first with cache fallback and deliberately skips `/api/*`, `/_next/*`, and
 RSC payloads — caching those breaks navigation. Bump `CACHE_NAME` when changing it.
 
-### Password gate
+### Password gate and API auth
 
-`app/components/PasswordGate.tsx` wraps the whole app in `app/layout.tsx`. One shared password,
-`APP_PASSWORD` (set on Vercel; falls back to `1234` in `lib/auth.ts`, so locally unlock with `1234`).
-`POST /api/auth/verify` returns an HMAC token, stored in localStorage and a `revmarks_auth` cookie for a
-year; when online, the gate re-checks it, so changing `APP_PASSWORD` relocks every device. "Lock
-Device" on `/manage` clears it. The gate renders a spinner until mount, so pages are client-rendered.
+One shared password, `APP_PASSWORD`, with **no default** — see Required environment above.
 
-It is **deliberately light**: it only hides the UI, and API routes do not check the token. The site is
-not sensitive — do not harden it (route checks, middleware, secret rotation) unless asked.
+`POST /api/auth/verify` compares the submitted password with `crypto.timingSafeEqual` (over SHA-256
+digests, because `timingSafeEqual` throws on unequal buffer lengths) and, on success, sets an
+**httpOnly** `revmarks_auth` cookie holding an HMAC of the password. The token is never returned in
+the body and page scripts cannot read it. The route is `runtime = "nodejs"` for `crypto`.
+
+`middleware.ts` matches `/api/:path*` and 401s anything without a valid cookie. `/api/auth/verify` is
+the one exception — it is how a device gets a cookie and how the gate revalidates one. The middleware
+runs on the **Edge** runtime, which has no `node:crypto`, so `lib/auth.ts` derives the token with Web
+Crypto (`crypto.subtle`) and compares with its own `constantTimeEqual`; that is why the token
+derivation lives there and only the password comparison lives in the route. Keep `lib/auth.ts` free of
+`node:crypto` imports or middleware stops building.
+
+A simple in-process attempt counter in the route blocks an address for 15 minutes after 10 failures in
+15 minutes. It is deliberately not a table — it turns a fast guessing loop into a slow one, which is
+all it is for.
+
+The cookie is `secure` only outside development: `npm run dev` binds 0.0.0.0 so a phone on the LAN can
+reach it over plain http, where a secure cookie is silently dropped and every API call would then 401.
+Vercel is https, so production is always secure.
+
+`app/components/PasswordGate.tsx` wraps the app in `app/layout.tsx`. Because it can no longer read the
+cookie, it keeps a plain `revmarks_auth_unlocked` **flag** in localStorage — a hint, not a credential —
+so the app opens straight into Mark mode offline, and revalidates with `GET /api/auth/verify` when
+online (changing `APP_PASSWORD` therefore still relocks every device). It migrates the old
+`revmarks_auth_token` localStorage entry away on mount; the JS-set cookie it left behind holds the same
+value the server issues, so existing devices stay unlocked across this change. "Lock Device" on
+`/manage` clears the flag and calls DELETE, which is the only way to clear an httpOnly cookie.
+
+One consequence for the offline queue: `OfflineSyncProvider` still sits outside `PasswordGate` and
+drains while locked, but those POSTs now 401. `drainQueue` only drops a record on `res.ok`, so nothing
+is lost — the marks stay queued and upload once the device is unlocked.
 
 ### Session lock
 
@@ -174,13 +217,29 @@ One record per student per town + REV, enforced by the app, not the database. Th
 no unique key: phone is optional, `records.phone_no` is stored as typed, and an offline upload that
 hit one could only overwrite or drop marks with nobody asked.
 
-`findDuplicate()` in `lib/duplicates.ts` is the single definition, shared by `MarkForm` and
-`POST /api/records`: the same mobile (normalised), or the same name when the mobiles don't
-contradict it — two same-name students with different numbers are never merged.
+`findDuplicate()` in `lib/duplicates.ts` is the single definition, shared by `MarkForm` and the API:
+the same mobile (normalised), or the same name when the mobiles don't contradict it — two same-name
+students with different numbers are never merged.
 
-- Save checks this phone's session list first, then the POST checks the database and refuses a match
-  with 409 + `existing`. Only the server check catches another marker's save — the session list is
-  loaded once and never refreshed.
+`findExistingRecord()` in `lib/duplicates.server.ts` is how the server asks. It **narrows in SQL** —
+same town + REV, and either the last 9 digits of the mobile (after stripping punctuation, since
+`records.phone_no` is stored as typed) or an exact case-folded name — then hands the candidates to
+`findDuplicate()`, which still makes the decision. The SQL is only ever allowed to be *looser* than
+`findDuplicate`; a row the query never returns is a duplicate nobody will ever catch. That is why
+`MIN_PHONE_DIGITS`, `MIN_NAME_CHARS` and `phoneKey` are exported from `lib/duplicates.ts` and the two
+files share them. This replaced a `SELECT * FROM records WHERE town = $1 AND rev_id = $2` that pulled
+every row of a busy REV across the wire on every single save.
+
+Both write paths use it:
+
+- **POST** — save checks this phone's session list first, then the POST checks the database and
+  refuses a match with 409 + `existing`. Only the server check catches another marker's save — the
+  session list is loaded once and never refreshed.
+- **PUT `/api/records/[id]`** — same rule, excluding the record being edited (`excludeId`), so editing
+  a record to carry another student's mobile is refused with 409 + `existing` instead of sailing
+  through. `RecordsClient` surfaces the server's `.error` and leaves the edit sheet open. `MarkForm`'s
+  Replace path also PUTs, and can legitimately 409 when the typed identity now matches a *third*
+  record.
 - Either way `DuplicateSheet` asks: **Replace** (PUT, or edit the queued copy if it has not synced)
   or **Keep** (discard what was typed). Dismissing it returns to the form with the input intact.
 - Offline replays (`client_temp_id` set) are **never refused** — the drain has nobody to ask, and a
@@ -210,20 +269,28 @@ The Neon migration for it (with a backfill that applies the same phone rules in 
 `neon-sql/`, which is **gitignored** — SQL is handed to the database owner rather than committed.
 `schema.sql` carries the table for fresh installs.
 
+`neon-sql/04_add_revs_updated_at.sql` is the other outstanding one: it adds `rev_numbers.updated_at`
+(backfilled from `created_at`) and **must run before** the `PUT /api/revs` change that writes it is
+deployed, or every REV edit fails. `schema.sql` has the column for fresh installs.
+
 ### API surface
 
 All routes are `dynamic = "force-dynamic"`. `/api/rank` and `/api/records/export` additionally set
-`runtime = "nodejs"` because pdf-lib and exceljs need it.
+`runtime = "nodejs"` because pdf-lib and exceljs need it; `/api/auth/verify` sets it for `crypto`.
+
+**Every route below except `/api/auth/verify` is behind `middleware.ts`** and 401s without a valid
+`revmarks_auth` cookie. The browser attaches it to same-origin fetches and to the top-level
+navigations used for the xlsx export and the rank PDF, so no caller does anything special.
 
 | Route | Verbs |
 |---|---|
-| `/api/revs` | GET (with `record_count`), POST (upserts on `rev_no` conflict), PUT (by id), DELETE (`?id=`, takes its records with it) |
+| `/api/revs` | GET (with `record_count`, `updated_at`), POST (**409 + `existing`** if `rev_no` is taken), PUT (by id; 409 on a rename clash), DELETE (`?id=`, takes its records with it) |
 | `/api/students/history` | GET (optional `town`) → `students` table |
 | `/api/records` | GET (`town` + `rev_id` required, optional `search`, `sort`), POST (409 + `existing` on a duplicate; offline replays get `duplicate_of` instead) |
-| `/api/records/[id]` | PUT, DELETE |
+| `/api/records/[id]` | PUT (409 + `existing` on a duplicate), DELETE |
 | `/api/records/export` | GET → xlsx |
 | `/api/rank` | GET → PDF (`town=ALL` ranks across all towns) |
-| `/api/auth/verify` | GET (is token valid), POST (password → token + cookie), DELETE (clear cookie) |
+| `/api/auth/verify` | GET (is the cookie still valid), POST (password → httpOnly cookie; 401 wrong, 429 rate-limited), DELETE (clear cookie) |
 
 Search and filtering are SQL; **sorting by total is done in JS after the query**, because the total
 isn't a column. `sort` is `modified_desc` (default), `modified_asc`, `total_desc` or `total_asc`
@@ -236,6 +303,12 @@ The following were resolved in the front-end redesign (Tasks 1–15):
 - v4-only `backdrop-blur-xs` class (replaced with v3-compatible classes, files removed in Task 15)
 - PATCH/405 mismatch on record edit (fixed in Task 10, now uses PUT)
 - Blocking `confirm()` dialog in record deletion (replaced with `ConfirmSheet` in Task 12)
+
+These were fixed alongside the API-auth work — see the sections above for why each shape is now
+load-bearing:
+- `PUT /api/revs` stamping `records.updated_at` and destroying the records list's sort order
+- `POST /api/revs` silently reconfiguring an existing REV via `ON CONFLICT DO UPDATE`
+- `PUT /api/records/[id]` skipping the one-record-per-student rule that POST enforces
 
 Open items:
 - `public/manifest.json` is stale and unreferenced. The live manifest is generated by `app/manifest.ts`
