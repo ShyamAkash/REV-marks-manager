@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppNav } from "@/app/components/AppNav";
+import { OfflineSyncProvider } from "@/app/components/OfflineSyncProvider";
 import { ServiceWorkerHost } from "@/app/components/ServiceWorkerHost";
 import { ToastProvider } from "@/app/components/ui";
 
@@ -39,12 +40,16 @@ export default function RootLayout({
       <body className="min-h-dvh bg-ink text-paper font-sans antialiased">
         <ToastProvider>
           <ServiceWorkerHost />
-          <div className="flex min-h-dvh flex-col">
-            <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-4">
-              {children}
-            </main>
-            <AppNav />
-          </div>
+          {/* Queue draining runs app-wide, not only on screens that show an
+              indicator - see OfflineSyncProvider. */}
+          <OfflineSyncProvider>
+            <div className="flex min-h-dvh flex-col">
+              <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-4">
+                {children}
+              </main>
+              <AppNav />
+            </div>
+          </OfflineSyncProvider>
         </ToastProvider>
       </body>
     </html>

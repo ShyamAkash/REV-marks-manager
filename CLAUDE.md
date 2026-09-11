@@ -74,9 +74,30 @@ Marks entry must survive a dead connection mid-session, so writes have two paths
 fails. Queued items carry a client-generated `tempId`; recent-entry lists key off `id ?? tempId` and
 flag queued rows as offline.
 
+It finishes by re-reading the queue and removing only the `tempId`s it actually uploaded — never by
+writing its own snapshot's leftovers back. Marking continues while a drain runs, and on a slow
+connection that takes seconds; a mark saved in that window is not in the snapshot, so a wholesale
+write would erase it with no error shown. Keep that read-filter-write shape.
+
+The drain runs under a **cross-tab lock** (`withSyncLock`), because the queue lives in localStorage
+which every tab shares while each tab runs its own sync engine — two open tabs would otherwise upload
+the same records and write duplicate rows. Web Locks does the real work and releases automatically if
+a tab dies; the timestamped localStorage claim is only a fallback for browsers without that API
+(Safari before 15.4), and is best-effort by nature. `ifAvailable` means a blocked tab skips rather
+than queues — the next 15s interval retries anyway.
+
+One consequence to keep in mind: delivery is **at-least-once, not exactly-once**. If a tab uploads a
+record and then dies before trimming the queue, the next drain re-uploads it. Making that impossible
+needs server-side idempotency (a unique `tempId` column with `ON CONFLICT DO NOTHING`), which is a
+schema change and is not implemented.
+
 ### Offline sync and service-worker registration run app-wide
 
 `lib/useOfflineSync.ts` owns queue draining — on `online` events, on a 15s interval, and on demand.
+It is called **exactly once**, by `OfflineSyncProvider` in the root layout, and its state reaches
+consumers through context (`useOfflineSyncState()`). Draining therefore runs on every route,
+including Mark mode's town/REV picker — where someone reopening the app with queued records
+actually lands.
 `lib/useServiceWorker.ts` registers `public/sw.js` in production and, in development, actively
 *unregisters* any live worker: a stale one intercepts RSC payload fetches and breaks local
 navigation. That unregister is deliberate; do not "simplify" it into an unconditional register.
@@ -86,8 +107,10 @@ Both run from the root layout via `ServiceWorkerHost`, a null-rendering client c
 separate and contextual: `OfflineIndicator` renders inline in Mark mode's session bar and as a
 banner on Manage routes.
 
-Each `useOfflineSync()` call installs its own listeners and interval, so mount at most one
-`OfflineIndicator` per rendered route.
+`OfflineIndicator` is display only — it reads the shared state, so mounting it on several routes
+costs nothing and never duplicates a drain. Do not call `useOfflineSync()` anywhere else: a second
+call would install a second set of listeners and a second interval, and two drains racing on the
+same queue upload the same records twice.
 
 Before the redesign both engines lived inside banner components rendered only by `app/page.tsx`,
 so navigating away from the home screen silently stopped queue syncing.

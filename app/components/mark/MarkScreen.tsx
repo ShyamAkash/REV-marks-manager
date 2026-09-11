@@ -6,7 +6,6 @@ import { formatTotal } from "@/lib/format";
 import { getOfflineQueue } from "@/lib/offlineQueue";
 import { Button, Card, Skeleton } from "@/app/components/ui";
 import { OfflineIndicator } from "@/app/components/OfflineIndicator";
-import { InstallPrompt } from "@/app/components/InstallPrompt";
 import { MarkForm } from "./MarkForm";
 import { SessionEntriesSheet } from "./SessionEntriesSheet";
 import { SessionStart } from "./SessionStart";
@@ -90,7 +89,10 @@ export function MarkScreen() {
   if (!session) {
     return (
       <div className="flex flex-col gap-4">
-        <InstallPrompt />
+        {/* Someone reopening the app with records still queued lands here, so
+            this is exactly where they need to see that those marks are waiting
+            and watch them go. */}
+        <OfflineIndicator variant="banner" />
         <SessionStart revs={revs} onStart={startSession} />
       </div>
     );

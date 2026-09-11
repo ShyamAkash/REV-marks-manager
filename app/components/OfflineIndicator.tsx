@@ -1,6 +1,6 @@
 "use client";
 
-import { useOfflineSync } from "@/lib/useOfflineSync";
+import { useOfflineSyncState } from "@/app/components/OfflineSyncProvider";
 import { Button, StatusDot } from "@/app/components/ui";
 
 /**
@@ -8,8 +8,9 @@ import { Button, StatusDot } from "@/app/components/ui";
  * `banner` is used on Manage routes, and renders nothing when there is
  * nothing to report.
  *
- * Every call to `useOfflineSync()` installs its own event listeners and its
- * own 15s interval. Mount at most one `OfflineIndicator` per rendered route.
+ * Display only. The sync engine itself runs once app-wide from
+ * `OfflineSyncProvider`, so mounting this on several routes - or twice on one -
+ * costs nothing and never duplicates a drain.
  */
 export function OfflineIndicator({
   variant = "banner",
@@ -17,7 +18,7 @@ export function OfflineIndicator({
   variant?: "inline" | "banner";
 }) {
   const { mounted, isOnline, pendingCount, syncing, justSynced, syncNow } =
-    useOfflineSync();
+    useOfflineSyncState();
 
   if (!mounted) return null;
   // Stay visible while confirming a sync, otherwise the indicator vanishes the
