@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppNav } from "@/app/components/AppNav";
 import { OfflineSyncProvider } from "@/app/components/OfflineSyncProvider";
+import { PasswordGate } from "@/app/components/PasswordGate";
 import { ServiceWorkerHost } from "@/app/components/ServiceWorkerHost";
 import { ToastProvider } from "@/app/components/ui";
 
@@ -43,12 +44,14 @@ export default function RootLayout({
           {/* Queue draining runs app-wide, not only on screens that show an
               indicator - see OfflineSyncProvider. */}
           <OfflineSyncProvider>
-            <div className="flex min-h-dvh flex-col">
-              <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-4">
-                {children}
-              </main>
-              <AppNav />
-            </div>
+            <PasswordGate>
+              <div className="flex min-h-dvh flex-col">
+                <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-6 pt-4">
+                  {children}
+                </main>
+                <AppNav />
+              </div>
+            </PasswordGate>
           </OfflineSyncProvider>
         </ToastProvider>
       </body>

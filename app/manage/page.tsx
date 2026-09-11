@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { Lock } from "lucide-react";
+import { useAuth } from "@/app/components/PasswordGate";
 
 const SECTIONS = [
   {
@@ -19,6 +23,8 @@ const SECTIONS = [
 ];
 
 export default function ManagePage() {
+  const { lockDevice } = useAuth();
+
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-title font-semibold text-paper">Manage</h1>
@@ -37,6 +43,20 @@ export default function ManagePage() {
           </span>
         </Link>
       ))}
+
+      <button
+        type="button"
+        id="lock-device-btn"
+        onClick={() => void lockDevice()}
+        className="mt-4 flex items-center justify-between gap-3 rounded-card border border-line bg-surface p-4 text-left transition-colors hover:border-dim"
+      >
+        <span className="flex flex-col">
+          <span className="text-body font-semibold text-paper">Lock Device</span>
+          <span className="text-label text-dim">Require password again on this device</span>
+        </span>
+        <Lock className="h-5 w-5 text-dim" />
+      </button>
     </div>
   );
 }
+
