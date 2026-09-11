@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { errorStatus, sql } from "@/lib/db";
 import { calcTotal } from "@/lib/calc";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { errorStatus, sql } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +41,6 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ students: rows });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message, students: [] }, { status: 500 });
+    return NextResponse.json({ error: err.message, students: [] }, { status: errorStatus(err) });
   }
 }
