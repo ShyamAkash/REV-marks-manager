@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getOfflineQueue, syncOfflineQueue } from "@/lib/offlineQueue";
+import { getOfflineQueue, syncOfflineQueue, QUEUE_KEY } from "@/lib/offlineQueue";
 import { triggerHaptic } from "@/lib/haptics";
 
 const POLL_MS = 15000;
@@ -70,9 +70,18 @@ export function useOfflineSync(): OfflineSyncState {
     };
     const onQueueUpdated = () => setPendingCount(getOfflineQueue().length);
 
+    // `revmarks-queue-updated` is dispatched on this tab's window only, so it
+    // never crosses tabs. When another tab drains the shared queue we hear about
+    // it here instead — without this, a second tab keeps displaying a count for
+    // records that are already uploaded. (`key === null` is a storage clear.)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === QUEUE_KEY) onQueueUpdated();
+    };
+
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     window.addEventListener("revmarks-queue-updated", onQueueUpdated);
+    window.addEventListener("storage", onStorage);
 
     const interval = setInterval(() => {
       if (navigator.onLine && getOfflineQueue().length > 0) void syncNow();
@@ -82,6 +91,7 @@ export function useOfflineSync(): OfflineSyncState {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("revmarks-queue-updated", onQueueUpdated);
+      window.removeEventListener("storage", onStorage);
       clearInterval(interval);
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
     };

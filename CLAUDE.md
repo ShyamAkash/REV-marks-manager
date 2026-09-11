@@ -79,6 +79,18 @@ writing its own snapshot's leftovers back. Marking continues while a drain runs,
 connection that takes seconds; a mark saved in that window is not in the snapshot, so a wholesale
 write would erase it with no error shown. Keep that read-filter-write shape.
 
+The drain runs under a **cross-tab lock** (`withSyncLock`), because the queue lives in localStorage
+which every tab shares while each tab runs its own sync engine — two open tabs would otherwise upload
+the same records and write duplicate rows. Web Locks does the real work and releases automatically if
+a tab dies; the timestamped localStorage claim is only a fallback for browsers without that API
+(Safari before 15.4), and is best-effort by nature. `ifAvailable` means a blocked tab skips rather
+than queues — the next 15s interval retries anyway.
+
+One consequence to keep in mind: delivery is **at-least-once, not exactly-once**. If a tab uploads a
+record and then dies before trimming the queue, the next drain re-uploads it. Making that impossible
+needs server-side idempotency (a unique `tempId` column with `ON CONFLICT DO NOTHING`), which is a
+schema change and is not implemented.
+
 ### Offline sync and service-worker registration run app-wide
 
 `lib/useOfflineSync.ts` owns queue draining — on `online` events, on a 15s interval, and on demand.
