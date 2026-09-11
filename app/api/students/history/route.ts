@@ -4,8 +4,12 @@ import { sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 /**
- * Distinct students already recorded, for the entry form's returning-student
- * autocomplete.
+ * Returning students, for the entry form's autocomplete.
+ *
+ * Read from the `students` table, not from `records`. Deleting a REV deletes
+ * its records, and a list derived from them would forget every student who
+ * was only marked in that REV. lib/students.ts keeps the table up to date on
+ * every save and edit - one row per mobile number, latest name wins.
  *
  * `town` scopes the result to one town's students. That filter is deliberate:
  * students attend one town's class, and near-identical names across towns are
@@ -23,17 +27,15 @@ export async function GET(req: NextRequest) {
 
     const rows = town
       ? await db(
-          `SELECT DISTINCT student_name, phone_no
-           FROM records
-           WHERE student_name IS NOT NULL AND student_name != ''
-             AND town = $1
+          `SELECT student_name, phone_no
+           FROM students
+           WHERE town = $1
            ORDER BY student_name ASC`,
           [town]
         )
       : await db(
-          `SELECT DISTINCT student_name, phone_no
-           FROM records
-           WHERE student_name IS NOT NULL AND student_name != ''
+          `SELECT student_name, phone_no
+           FROM students
            ORDER BY student_name ASC`
         );
 

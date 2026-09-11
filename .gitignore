@@ -21,6 +21,9 @@ dist/
 # local sample data and brand material (kept on disk, not in the repo)
 test files/
 
+# SQL handed to the database owner to run on Neon (kept out of the repo)
+neon-sql/
+
 # editor / OS junk
 ~$*
 .DS_Store

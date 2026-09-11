@@ -40,3 +40,22 @@ export function formatSriLankanPhone(val: string, prevPhone: string = ""): strin
 export function phoneDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
+
+/**
+ * The key a student is stored under in the `students` table: 10 digits
+ * starting with 0, or null when the number cannot be one.
+ *
+ * Same prefix rules as formatSriLankanPhone, but it never truncates. An
+ * 11-digit number is a typo, and cutting it down to 10 could file the student
+ * under somebody else's number.
+ *
+ * The one-off backfill that seeded the table from existing records applied
+ * these exact rules in SQL (neon-sql/01_create_students_table.sql, kept out of
+ * git). Change the two together.
+ */
+export function normalizeStudentPhone(value: string | null | undefined): string | null {
+  let digits = phoneDigits(value);
+  if (digits.startsWith("94") && digits.length >= 3) digits = "0" + digits.slice(2);
+  if (digits.startsWith("7")) digits = "0" + digits;
+  return /^0\d{9}$/.test(digits) ? digits : null;
+}

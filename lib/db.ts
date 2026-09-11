@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { normalizeStudentPhone } from "@/lib/phone";
 
 interface InMemoryRev {
   id: number;
@@ -25,77 +26,160 @@ interface InMemoryRecord {
   updated_at: string;
 }
 
+/** One row per normalised mobile number, mirroring the `students` table. */
+interface InMemoryStudent {
+  phone_no: string;
+  student_name: string;
+  town: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const globalStore = globalThis as unknown as {
   __revDbMock?: {
     revs: InMemoryRev[];
     records: InMemoryRecord[];
+    students: InMemoryStudent[];
     nextRevId: number;
     nextRecordId: number;
   };
 };
 
+/**
+ * The same backfill the production migration ran: one student per usable
+ * number, latest record wins.
+ */
+function studentsFromRecords(records: InMemoryRecord[]): InMemoryStudent[] {
+  const byPhone = new Map<string, InMemoryStudent>();
+  const newestFirst = [...records].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  );
+  for (const r of newestFirst) {
+    const phone = normalizeStudentPhone(r.phone_no);
+    const name = (r.student_name ?? "").trim();
+    if (!phone || !name || byPhone.has(phone)) continue;
+    byPhone.set(phone, {
+      phone_no: phone,
+      student_name: name,
+      town: r.town,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    });
+  }
+  return [...byPhone.values()];
+}
+
 function getMockStore() {
   if (!globalStore.__revDbMock) {
+    const records: InMemoryRecord[] = [
+      {
+        id: 1,
+        town: "Gampaha",
+        rev_id: 1,
+        student_name: "Kasun Perera",
+        phone_no: "0771234567",
+        mcq_mark: 42,
+        structured_mark: 78,
+        essay_mark: 85,
+        staff: "Mr. Fernando",
+        client_temp_id: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 2,
+        town: "Gampaha",
+        rev_id: 1,
+        student_name: "Nimmi Jayawardena",
+        phone_no: "0719876543",
+        mcq_mark: 46,
+        structured_mark: 84,
+        essay_mark: 91,
+        staff: "Mr. Fernando",
+        client_temp_id: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 3,
+        town: "Kiribathgoda",
+        rev_id: 1,
+        student_name: "Dinuka Silva",
+        phone_no: "0755554321",
+        mcq_mark: 38,
+        structured_mark: 65,
+        essay_mark: 72,
+        staff: "Ms. Silva",
+        client_temp_id: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
     globalStore.__revDbMock = {
       revs: [
         { id: 1, rev_no: "REV 01", num_mcq: 50, num_structured: 4, num_essay: 4, created_at: new Date().toISOString() },
         { id: 2, rev_no: "REV 02", num_mcq: 50, num_structured: 4, num_essay: 4, created_at: new Date().toISOString() },
         { id: 3, rev_no: "REV 03", num_mcq: 40, num_structured: 4, num_essay: 3, created_at: new Date().toISOString() },
       ],
-      records: [
-        {
-          id: 1,
-          town: "Gampaha",
-          rev_id: 1,
-          student_name: "Kasun Perera",
-          phone_no: "0771234567",
-          mcq_mark: 42,
-          structured_mark: 78,
-          essay_mark: 85,
-          staff: "Mr. Fernando",
-          client_temp_id: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          town: "Gampaha",
-          rev_id: 1,
-          student_name: "Nimmi Jayawardena",
-          phone_no: "0719876543",
-          mcq_mark: 46,
-          structured_mark: 84,
-          essay_mark: 91,
-          staff: "Mr. Fernando",
-          client_temp_id: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 3,
-          town: "Kiribathgoda",
-          rev_id: 1,
-          student_name: "Dinuka Silva",
-          phone_no: "0755554321",
-          mcq_mark: 38,
-          structured_mark: 65,
-          essay_mark: 72,
-          staff: "Ms. Silva",
-          client_temp_id: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ],
+      records,
+      students: studentsFromRecords(records),
       nextRevId: 4,
       nextRecordId: 4,
     };
   }
+  // The store lives on globalThis and survives hot reloads, so a dev server
+  // started before the students table existed holds a store without one.
+  // Backfill it the way the production migration does rather than crash.
+  globalStore.__revDbMock.students ??= studentsFromRecords(
+    globalStore.__revDbMock.records
+  );
   return globalStore.__revDbMock;
 }
 
 async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> {
   const store = getMockStore();
   const text = queryText.replace(/\s+/g, " ").trim();
+
+  // 0. DELETE a REV together with its records. Must come before every
+  // rev_numbers branch: its text contains both "FROM rev_numbers" and
+  // "WHERE id =", which the single-REV select below would otherwise answer.
+  if (text.startsWith("WITH gone AS (DELETE FROM records")) {
+    const revId = Number(params[0]);
+    const rev = store.revs.find((r) => r.id === revId);
+    if (!rev) return [];
+    const before = store.records.length;
+    store.records = store.records.filter((r) => r.rev_id !== revId);
+    store.revs = store.revs.filter((r) => r.id !== revId);
+    return [{ id: rev.id, rev_no: rev.rev_no, deleted_records: before - store.records.length }];
+  }
+
+  // 0b. Upsert a student - latest name and town win for a number.
+  if (text.startsWith("INSERT INTO students")) {
+    const [phone_no, student_name, town] = params.map((p) => String(p));
+    const now = new Date().toISOString();
+    const existing = store.students.find((s) => s.phone_no === phone_no);
+    if (existing) {
+      existing.student_name = student_name;
+      existing.town = town;
+      existing.updated_at = now;
+    } else {
+      store.students.push({ phone_no, student_name, town, created_at: now, updated_at: now });
+    }
+    return [];
+  }
+
+  // 0c. Students for the autocomplete, optionally scoped to one town.
+  if (text.includes("FROM students")) {
+    // Honour the optional "WHERE town = $1" filter. Without this the mock
+    // returns every town's students while real Postgres returns one town's, so
+    // the autocomplete would look correct locally and behave differently in
+    // production.
+    const townFilter = text.includes("WHERE town =") ? String(params[0] ?? "") : "";
+    return store.students
+      .filter((s) => !townFilter || s.town === townFilter)
+      .map((s) => ({ student_name: s.student_name, phone_no: s.phone_no }))
+      .sort((a, b) => a.student_name.localeCompare(b.student_name));
+  }
 
   // 1. SELECT single REV by id
   if (text.includes("FROM rev_numbers") && text.includes("WHERE id =")) {
@@ -110,7 +194,7 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
     }));
   }
 
-  // 2. SELECT all REVs
+  // 2. SELECT all REVs, each with how many records it has
   if (text.includes("FROM rev_numbers")) {
     const sorted = [...store.revs].sort((a, b) => a.rev_no.localeCompare(b.rev_no));
     return sorted.map((r) => ({
@@ -119,6 +203,7 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
       num_mcq: r.num_mcq,
       num_structured: r.num_structured,
       num_essay: r.num_essay,
+      record_count: store.records.filter((rec) => rec.rev_id === r.id).length,
     }));
   }
 
@@ -229,30 +314,6 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
     const id = Number(params[0]);
     store.records = store.records.filter((r) => r.id !== id);
     return [];
-  }
-
-  // 6b. SELECT DISTINCT student_name, phone_no for student history
-  if (text.includes("DISTINCT student_name, phone_no") || (text.includes("FROM records") && text.includes("student_name IS NOT NULL AND student_name != ''"))) {
-    const seen = new Set<string>();
-    const results: { student_name: string; phone_no: string | null }[] = [];
-    // Honour the optional "AND town = $1" filter. Without this the mock returns
-    // every town's students while real Postgres returns one town's, so the
-    // autocomplete would look correct locally and behave differently in production.
-    const townFilter = text.includes("AND town =") ? String(params[0] ?? "") : "";
-    for (const r of store.records) {
-      if (townFilter && r.town !== townFilter) continue;
-      if (r.student_name && r.student_name.trim()) {
-        const key = r.student_name.trim().toLowerCase();
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({
-            student_name: r.student_name.trim(),
-            phone_no: r.phone_no ? String(r.phone_no).trim() : null,
-          });
-        }
-      }
-    }
-    return results.sort((a, b) => a.student_name.localeCompare(b.student_name));
   }
 
   // 6c. SELECT a record by its client-generated id, used to answer a replay of
