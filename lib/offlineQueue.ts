@@ -134,15 +134,14 @@ export function updateOfflineRecord(tempId: string, updates: Partial<OfflineReco
 }
 
 /**
- * Uploads every queued record, then removes from the queue only the records
- * this drain actually uploaded.
+ * Uploads every queued record, removing each one as the server confirms it.
  *
- * The re-read at the end is load-bearing. A marker keeps working while a sync
- * runs, and on a slow connection that drain takes seconds. Any mark saved in
- * that window lands in localStorage after our snapshot was taken, so writing
- * the snapshot's leftovers back would erase it - silently, with the marker
- * already looking at the next student. Filtering the *current* queue by the
- * tempIds we uploaded keeps those late arrivals.
+ * Removing per record rather than in one batch at the end is load-bearing
+ * twice over. It bounds what a mid-drain crash can duplicate to the single
+ * record in flight, and because each removal re-reads the queue, a mark saved
+ * by a marker still working during the drain survives - a batched write of a
+ * stale snapshot would erase it silently, with the marker already looking at
+ * the next student.
  *
  * Held under a cross-tab lock so two open tabs cannot upload the same records
  * twice — see `withSyncLock`.
@@ -163,7 +162,7 @@ async function drainQueue(): Promise<{ syncedCount: number; remainingCount: numb
   const queue = getOfflineQueue();
   if (queue.length === 0) return { syncedCount: 0, remainingCount: 0 };
 
-  const syncedIds = new Set<string>();
+  let syncedCount = 0;
 
   for (const item of queue) {
     try {
@@ -179,22 +178,33 @@ async function drainQueue(): Promise<{ syncedCount: number; remainingCount: numb
           structured_mark: item.structured_mark,
           essay_mark: item.essay_mark,
           staff: item.staff,
+          // Lets the server recognise a replay of a record it already stored,
+          // and ignore it instead of creating a duplicate row.
+          client_temp_id: item.tempId,
         }),
       });
 
-      if (res.ok) syncedIds.add(item.tempId);
+      if (res.ok) {
+        syncedCount++;
+        // Drop it the instant the server confirms it, rather than batching
+        // every removal until the loop ends. Uploads are already durable at
+        // this point; anything still queued is genuinely not yet sent.
+        //
+        // This is what bounds the damage when a tab dies mid-drain - a phone
+        // reclaiming memory from a backgrounded tab, or the app being force
+        // closed. Trimming at the end meant a death after fifteen of twenty
+        // uploads left all twenty queued, and the next drain re-sent the
+        // fifteen already in the database as duplicate rows. Now at most the
+        // single record in flight can be sent twice.
+        //
+        // removeOfflineRecord re-reads the queue, so a mark saved while this
+        // drain is running still survives.
+        removeOfflineRecord(item.tempId);
+      }
     } catch {
       // Network failure - leave it queued for the next drain.
     }
   }
 
-  // Nothing uploaded, so nothing to remove. Skipping the write also avoids
-  // firing a queue-updated event that changes no state.
-  if (syncedIds.size === 0) {
-    return { syncedCount: 0, remainingCount: getOfflineQueue().length };
-  }
-
-  const remaining = getOfflineQueue().filter((r) => !syncedIds.has(r.tempId));
-  saveOfflineQueue(remaining);
-  return { syncedCount: syncedIds.size, remainingCount: remaining.length };
+  return { syncedCount, remainingCount: getOfflineQueue().length };
 }
