@@ -60,13 +60,23 @@ export function updateOfflineRecord(tempId: string, updates: Partial<OfflineReco
   saveOfflineQueue(queue);
 }
 
+/**
+ * Uploads every queued record, then removes from the queue only the records
+ * this drain actually uploaded.
+ *
+ * The re-read at the end is load-bearing. A marker keeps working while a sync
+ * runs, and on a slow connection that drain takes seconds. Any mark saved in
+ * that window lands in localStorage after our snapshot was taken, so writing
+ * the snapshot's leftovers back would erase it - silently, with the marker
+ * already looking at the next student. Filtering the *current* queue by the
+ * tempIds we uploaded keeps those late arrivals.
+ */
 export async function syncOfflineQueue(): Promise<{ syncedCount: number; remainingCount: number }> {
   if (typeof window === "undefined") return { syncedCount: 0, remainingCount: 0 };
   const queue = getOfflineQueue();
   if (queue.length === 0) return { syncedCount: 0, remainingCount: 0 };
 
-  let syncedCount = 0;
-  const remaining: OfflineRecord[] = [];
+  const syncedIds = new Set<string>();
 
   for (const item of queue) {
     try {
@@ -85,17 +95,19 @@ export async function syncOfflineQueue(): Promise<{ syncedCount: number; remaini
         }),
       });
 
-      if (res.ok) {
-        syncedCount++;
-      } else {
-        remaining.push(item);
-      }
+      if (res.ok) syncedIds.add(item.tempId);
     } catch {
-      // Network failure, keep this and rest in queue
-      remaining.push(item);
+      // Network failure - leave it queued for the next drain.
     }
   }
 
+  // Nothing uploaded, so nothing to remove. Skipping the write also avoids
+  // firing a queue-updated event that changes no state.
+  if (syncedIds.size === 0) {
+    return { syncedCount: 0, remainingCount: getOfflineQueue().length };
+  }
+
+  const remaining = getOfflineQueue().filter((r) => !syncedIds.has(r.tempId));
   saveOfflineQueue(remaining);
-  return { syncedCount, remainingCount: remaining.length };
+  return { syncedCount: syncedIds.size, remainingCount: remaining.length };
 }

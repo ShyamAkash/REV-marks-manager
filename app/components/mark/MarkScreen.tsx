@@ -90,6 +90,10 @@ export function MarkScreen() {
   if (!session) {
     return (
       <div className="flex flex-col gap-4">
+        {/* Someone reopening the app with records still queued lands here, so
+            this is exactly where they need to see that those marks are waiting
+            and watch them go. */}
+        <OfflineIndicator variant="banner" />
         <InstallPrompt />
         <SessionStart revs={revs} onStart={startSession} />
       </div>
