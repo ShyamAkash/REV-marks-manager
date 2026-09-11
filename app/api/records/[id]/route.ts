@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { upsertStudent } from "@/lib/students";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,16 @@ export async function PUT(
     if (!rows[0]) {
       return NextResponse.json({ error: "Record not found." }, { status: 404 });
     }
+
+    // A correction made in Manage or the session sheet should reach the
+    // autocomplete too. The town comes from the stored row - this handler
+    // never changes it.
+    await upsertStudent(db, {
+      student_name: rows[0].student_name,
+      phone_no: rows[0].phone_no,
+      town: rows[0].town,
+    });
+
     return NextResponse.json({ record: rows[0] });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

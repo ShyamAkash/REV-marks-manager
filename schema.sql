@@ -26,3 +26,16 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS idx_records_town_rev ON records (town, rev_id);
 CREATE INDEX IF NOT EXISTS idx_records_updated_at ON records (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_records_search ON records (student_name, phone_no);
+
+-- Student identity for the entry form's autocomplete, one row per mobile
+-- number, normalised to 07XXXXXXXX. Kept apart from records so that deleting
+-- a REV, which deletes its records, does not forget the students.
+CREATE TABLE IF NOT EXISTS students (
+  phone_no TEXT PRIMARY KEY,
+  student_name TEXT NOT NULL,
+  town TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_students_town ON students (town);

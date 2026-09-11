@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 RevMarks — a mobile-first PWA for recording exam revision paper marks, generating rank sheets (PDF)
 and exporting data (Excel). Next.js 15 App Router, React 19, TypeScript, Tailwind v3, Neon Postgres.
 Deployed on Vercel at https://revmarks.vercel.app/.
+github repo - https://github.com/ShyamAkash/REV-marks-manager 
 
 ## Commands
 
@@ -141,6 +142,27 @@ that chain — it is the core of the marking loop, and `Field` forwards refs spe
 Blank marks are valid and save as `0`; the save button is never disabled for missing marks. Marks
 above their maximum warn but still save. Both are deliberate.
 
+### Students table and REV deletion
+
+The entry form's returning-student autocomplete reads the `students` table, **not** `records`.
+One row per mobile number, normalised by `normalizeStudentPhone()` in `lib/phone.ts` to
+`07XXXXXXXX` (exactly 10 digits, never truncated). It is the key because names are typed
+differently week to week; two students never share a number.
+
+`upsertStudent()` in `lib/students.ts` writes it after a fresh record insert (not a `duplicate`
+replay) and after every record edit. Latest wins: name and town are overwritten. Rows with no name
+or no usable number are skipped, so phone-less students are never suggested. It never throws — the
+mark is already stored when it runs.
+
+The table exists so that REVs can be deleted. `DELETE /api/revs?id=N` removes the REV and all its
+records in every town in **one** CTE statement; that works on the plain `NO ACTION` foreign key
+because the check runs at end of statement. Nothing ever deletes from `students`. If you ever
+derive the autocomplete from `records` again, deleting a REV will silently forget its students.
+
+The Neon migration for it (with a backfill that applies the same phone rules in SQL) lives in
+`neon-sql/`, which is **gitignored** — SQL is handed to the database owner rather than committed.
+`schema.sql` carries the table for fresh installs.
+
 ### API surface
 
 All routes are `dynamic = "force-dynamic"`. `/api/rank` and `/api/records/export` additionally set
@@ -148,7 +170,8 @@ All routes are `dynamic = "force-dynamic"`. `/api/rank` and `/api/records/export
 
 | Route | Verbs |
 |---|---|
-| `/api/revs` | GET, POST (upserts on `rev_no` conflict), PUT (by id) |
+| `/api/revs` | GET (with `record_count`), POST (upserts on `rev_no` conflict), PUT (by id), DELETE (`?id=`, takes its records with it) |
+| `/api/students/history` | GET (optional `town`) → `students` table |
 | `/api/records` | GET (`town` + `rev_id` required, optional `search`, `sort`), POST |
 | `/api/records/[id]` | PUT, DELETE |
 | `/api/records/export` | GET → xlsx |

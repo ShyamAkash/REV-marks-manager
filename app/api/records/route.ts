@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { calcTotal } from "@/lib/calc";
+import { upsertStudent } from "@/lib/students";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,10 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ record: existing[0] ?? null, duplicate: true });
     }
+
+    // Only on a fresh insert: a replayed record already remembered its student
+    // the first time it arrived.
+    await upsertStudent(db, { student_name, phone_no, town });
 
     return NextResponse.json({ record: rows[0] });
   } catch (err: any) {
