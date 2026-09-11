@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 RevMarks — a mobile-first PWA for recording exam revision paper marks, generating rank sheets (PDF)
-and exporting data (Excel). Next.js 15 App Router, React 19, TypeScript, Tailwind v3, Neon Postgres.
-Deployed on Vercel at https://revmarks.vercel.app/.
+and exporting data (Excel). Next.js 15 App Router, React 19, TypeScript, Tailwind v3, Neon Postgres,
+`lucide-react` for icons. Deployed on Vercel at https://revmarks.vercel.app/.
 github repo - https://github.com/ShyamAkash/REV-marks-manager 
 
 ## Commands
@@ -14,7 +14,7 @@ github repo - https://github.com/ShyamAkash/REV-marks-manager
 ```bash
 npm install        # bun.lock is also committed, but Bun is not required; pick one and stay with it
 npm run dev        # next dev on port 3000, bound to 0.0.0.0 (so a phone on the LAN can reach it)
-npm run build      # next build (output: "standalone")
+npm run build      # next build
 npm start          # serve the production build
 npm run lint       # eslint, Next core-web-vitals rules only
 npm run db:init    # apply schema.sql to $DATABASE_URL — requires the env var, exits 1 without it
@@ -26,18 +26,30 @@ one; if a task needs verification, run `npm run build` (catches type errors — 
 
 `test files/` at the repo root is sample spreadsheet/brand material, not a test suite. It is untracked.
 
+When adding a dependency, update `package.json`, `package-lock.json` **and** `bun.lock` together.
+`lucide-react` arrived via `bun.lock` only, so `package-lock.json` went stale; `npm install` repairs it.
+
+Vercel deploy status per commit (run through the Bash tool — PowerShell mangles the `--jq` quoting):
+`gh api repos/ShyamAkash/REV-marks-manager/commits/<sha>/status --jq '.statuses[] | "\(.context): \(.state)"'`
+
+### Pulling from GitHub
+
+The repo owner often commits through GitHub's web "Add files via upload". Those uploads can be built
+from an older local copy and quietly revert recent edits (one restored a comment pointing at a
+removed migration). After pulling, read `git diff <old>..origin/main` for regressions, not just the
+new feature.
+
 ## Running without a database
 
-`sql()` in `lib/db.ts` returns an **in-memory mock** when `DATABASE_URL` is unset, seeded with three
-REV rows. So `npm run dev` works with zero setup and the UI looks fully functional.
+`sql()` in `lib/db.ts` returns an **in-memory mock** when `DATABASE_URL` is unset (or the Neon client
+fails to initialise), seeded with three REV rows. So `npm run dev` works with zero setup; there is no
+local `.env`, so local dev is always mock mode. Mock data lives in a `globalThis` singleton and
+disappears on restart.
 
-Two consequences worth internalising:
-
-- Data written in mock mode lives in a `globalThis` singleton and disappears on restart.
-- The fallback is also a **catch-all**: if a real Neon query throws, `sql()` logs a warning and
-  silently serves mock data instead of failing. A "working" screen is therefore not evidence the
-  database is reachable. Check the server console for `Database query failed` before concluding
-  anything about persistence.
+A real Neon query that throws is **no longer** swallowed into the mock — it propagates, and the route
+returns `{ error }` with a 500. (Older code fell back to mock data on any query error, so a "working"
+screen proved nothing; that is gone.) `mockQuery` pattern-matches SQL text, so a new query shape,
+such as a new `ORDER BY`, needs a matching branch there or it silently misbehaves in dev.
 
 ## Architecture
 
@@ -66,10 +78,11 @@ from the repo; it is in git history if an ancient database ever turns up.)
 
 Marks entry must survive a dead connection mid-session, so writes have two paths:
 
-1. Online → `POST /api/records`.
-2. Offline, or the POST throws a network error → `addOfflineRecord()` in `lib/offlineQueue.ts`
-   appends to `localStorage["revmarks_offline_queue"]` and dispatches a `revmarks-queue-updated`
-   window event.
+1. `MarkForm` always attempts `POST /api/records` — it does not pre-check `navigator.onLine`, which
+   lies on flaky connections.
+2. If the POST throws a network error (`Failed to fetch` / `NetworkError` / Safari's `Load failed`),
+   `addOfflineRecord()` in `lib/offlineQueue.ts` appends to `localStorage["revmarks_offline_queue"]`
+   and dispatches a `revmarks-queue-updated` window event.
 
 `syncOfflineQueue()` drains the queue by replaying each item as a normal POST, keeping anything that
 fails. Queued items carry a client-generated `tempId`; recent-entry lists key off `id ?? tempId` and
@@ -98,17 +111,17 @@ distinct, so they never collide with each other.
 
 **The column and its unique index must exist in the database before this code is deployed.**
 `schema.sql` creates both for fresh installs; an existing database gets them from
-`neon-sql/00_add_client_temp_id.sql` (gitignored, handed to the database owner). Not because of a
-missing feature, but because `sql()` swallows a failing query into the mock: an INSERT naming a
-column the database does not have would report "Saved" to the marker while the marks went nowhere.
+`neon-sql/00_add_client_temp_id.sql` (gitignored, handed to the database owner). Without them every
+record INSERT fails.
 
 ### Offline sync and service-worker registration run app-wide
 
-`lib/useOfflineSync.ts` owns queue draining — on `online` events, on a 15s interval, and on demand.
+`lib/useOfflineSync.ts` owns queue draining — on mount if the queue is non-empty, on `online` events,
+on a 15s interval (not gated on `navigator.onLine`), and on demand.
 It is called **exactly once**, by `OfflineSyncProvider` in the root layout, and its state reaches
 consumers through context (`useOfflineSyncState()`). Draining therefore runs on every route,
 including Mark mode's town/REV picker — where someone reopening the app with queued records
-actually lands.
+actually lands. `OfflineSyncProvider` sits outside `PasswordGate`, so it drains even while locked.
 `lib/useServiceWorker.ts` registers `public/sw.js` in production and, in development, actively
 *unregisters* any live worker: a stale one intercepts RSC payload fetches and breaks local
 navigation. That unregister is deliberate; do not "simplify" it into an unconditional register.
@@ -129,6 +142,17 @@ so navigating away from the home screen silently stopped queue syncing.
 `public/sw.js` is network-first with cache fallback and deliberately skips `/api/*`, `/_next/*`, and
 RSC payloads — caching those breaks navigation. Bump `CACHE_NAME` when changing it.
 
+### Password gate
+
+`app/components/PasswordGate.tsx` wraps the whole app in `app/layout.tsx`. One shared password,
+`APP_PASSWORD` (set on Vercel; falls back to `1234` in `lib/auth.ts`, so locally unlock with `1234`).
+`POST /api/auth/verify` returns an HMAC token, stored in localStorage and a `revmarks_auth` cookie for a
+year; when online, the gate re-checks it, so changing `APP_PASSWORD` relocks every device. "Lock
+Device" on `/manage` clears it. The gate renders a spinner until mount, so pages are client-rendered.
+
+It is **deliberately light**: it only hides the UI, and API routes do not check the token. The site is
+not sensitive — do not harden it (route checks, middleware, secret rotation) unless asked.
+
 ### Session lock
 
 `app/components/mark/useMarkSession.ts` persists `{town, revId, checkedBy}` to
@@ -136,8 +160,9 @@ RSC payloads — caching those breaks navigation. Bump `CACHE_NAME` when changin
 purpose, so anyone mid-session survives a deploy. `staff` on every record comes from the locked
 `checkedBy`.
 
-`SessionStart` gates entry behind town + REV + name; `MarkForm` chains fields on Enter (name → phone
-→ mcq → structured → essay → save) with `inputMode`/`enterKeyHint` set for phone keyboards. Preserve
+`SessionStart` gates entry behind town + REV + name; `MarkForm` chains fields on Enter (phone → name
+→ mcq → structured → essay → save; fields a REV has no questions for are skipped) with
+`inputMode`/`enterKeyHint` set for phone keyboards, and refocuses phone after each save. Preserve
 that chain — it is the core of the marking loop, and `Field` forwards refs specifically to support it.
 
 Blank marks are valid and save as `0`; the save button is never disabled for missing marks. Marks
@@ -177,9 +202,11 @@ All routes are `dynamic = "force-dynamic"`. `/api/rank` and `/api/records/export
 | `/api/records/[id]` | PUT, DELETE |
 | `/api/records/export` | GET → xlsx |
 | `/api/rank` | GET → PDF (`town=ALL` ranks across all towns) |
+| `/api/auth/verify` | GET (is token valid), POST (password → token + cookie), DELETE (clear cookie) |
 
 Search and filtering are SQL; **sorting by total is done in JS after the query**, because the total
-isn't a column.
+isn't a column. `sort` is `modified_desc` (default), `modified_asc`, `total_desc` or `total_asc`
+(ties broken newest first); legacy `modified` means `modified_desc`.
 
 ## Known defects
 
@@ -192,6 +219,8 @@ The following were resolved in the front-end redesign (Tasks 1–15):
 Open items:
 - `public/manifest.json` is stale and unreferenced. The live manifest is generated by `app/manifest.ts`
   and served at `/manifest.webmanifest`, which is what `app/layout.tsx` links.
+- The `client_temp_id` comment in `app/api/records/route.ts` POST points at the removed
+  `migration_client_temp_id.sql`; the index now lives in `schema.sql`.
 
 ## Conventions
 
