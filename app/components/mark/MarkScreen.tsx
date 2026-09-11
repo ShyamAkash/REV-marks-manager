@@ -12,6 +12,11 @@ import { SessionStart } from "./SessionStart";
 import { useMarkSession } from "./useMarkSession";
 import type { MarkEntry } from "./types";
 
+/** Same record: by server id once it has one, by queue id while it is only local. */
+function isSameEntry(a: MarkEntry, b: MarkEntry): boolean {
+  return Boolean((b.id && a.id === b.id) || (b.tempId && a.tempId === b.tempId));
+}
+
 export function MarkScreen() {
   const { session, revs, currentRev, startSession, endSession, ready } =
     useMarkSession();
@@ -22,7 +27,9 @@ export function MarkScreen() {
     if (!session) return;
 
     const queued: MarkEntry[] = getOfflineQueue()
-      .filter((q) => String(q.rev_id) === session.revId)
+      // Town too: this list feeds the duplicate check, and a student queued in
+      // another town's session is not a duplicate here.
+      .filter((q) => q.town === session.town && String(q.rev_id) === session.revId)
       .map((q) => ({
         tempId: q.tempId,
         student_name: q.student_name,
@@ -76,6 +83,19 @@ export function MarkScreen() {
     );
   }
 
+  /** Replace the matching entry, or add it if this phone had never seen it. */
+  function handleUpserted(entry: MarkEntry) {
+    setEntries((prev) =>
+      prev.some((e) => isSameEntry(e, entry))
+        ? prev.map((e) => (isSameEntry(e, entry) ? entry : e))
+        : [entry, ...prev]
+    );
+  }
+
+  function handleRemoved(entry: MarkEntry) {
+    setEntries((prev) => prev.filter((e) => !isSameEntry(e, entry)));
+  }
+
   if (!ready) {
     return (
       <div className="flex flex-col gap-3">
@@ -124,6 +144,8 @@ export function MarkScreen() {
         currentRev={currentRev}
         entries={entries}
         onSaved={handleSaved}
+        onUpserted={handleUpserted}
+        onRemoved={handleRemoved}
       />
 
       <button

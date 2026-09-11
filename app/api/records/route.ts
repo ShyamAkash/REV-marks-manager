@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { calcTotal } from "@/lib/calc";
+import { findDuplicate } from "@/lib/duplicates";
 import { upsertStudent } from "@/lib/students";
 
 export const dynamic = "force-dynamic";
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
     const structured_mark = Number(body.structured_mark) || 0;
     const essay_mark = Number(body.essay_mark) || 0;
     // Set only by replays from the offline queue; a record entered while online
-    // has no client id and stays NULL. See migration_client_temp_id.sql.
+    // has no client id and stays NULL. See idx_records_client_temp_id in schema.sql.
     const client_temp_id = body.client_temp_id
       ? String(body.client_temp_id).trim()
       : null;
@@ -111,6 +112,34 @@ export async function POST(req: NextRequest) {
     }
 
     const db = sql();
+
+    // Does this student already have a record in this town + REV? Checked here
+    // and not only in the form, because the form's list is loaded once per
+    // session and never sees what another marker saved since.
+    //
+    // A marker saving online is refused with the existing row, and the form
+    // asks them to Replace or Keep. Offline replays (client_temp_id set) are
+    // never refused: the queue drains in the background with nobody to ask,
+    // and a refusal would leave the record retrying forever. They are stored
+    // and flagged `duplicate_of`, which the sync message turns into a notice.
+    // A replay is excluded from its own comparison, or a record already stored
+    // by an earlier attempt would match itself.
+    const sameRev = await db(
+      `SELECT * FROM records WHERE town = $1 AND rev_id = $2`,
+      [town, rev_id]
+    );
+    const match = findDuplicate(
+      sameRev.filter((r: any) => !client_temp_id || r.client_temp_id !== client_temp_id),
+      { student_name, phone_no }
+    );
+    if (match && !client_temp_id) {
+      return NextResponse.json(
+        { error: "This student already has a record for this REV.", existing: match.record },
+        { status: 409 }
+      );
+    }
+    const flagged = match ? { duplicate_of: match.record.id } : {};
+
     // DO NOTHING on a repeated client_temp_id: the phone is replaying a record
     // the server already stored but never got to acknowledge, because the tab
     // died between the write landing and the queue being trimmed. NULL ids
@@ -133,14 +162,16 @@ export async function POST(req: NextRequest) {
         `SELECT * FROM records WHERE client_temp_id = $1`,
         [client_temp_id]
       );
-      return NextResponse.json({ record: existing[0] ?? null, duplicate: true });
+      // `duplicate` means this very record arrived twice; `duplicate_of` means
+      // the student already had a different record. Both can be true.
+      return NextResponse.json({ record: existing[0] ?? null, duplicate: true, ...flagged });
     }
 
     // Only on a fresh insert: a replayed record already remembered its student
     // the first time it arrived.
     await upsertStudent(db, { student_name, phone_no, town });
 
-    return NextResponse.json({ record: rows[0] });
+    return NextResponse.json({ record: rows[0], ...flagged });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -146,23 +146,37 @@ export function updateOfflineRecord(tempId: string, updates: Partial<OfflineReco
  * Held under a cross-tab lock so two open tabs cannot upload the same records
  * twice — see `withSyncLock`.
  */
-export async function syncOfflineQueue(): Promise<{ syncedCount: number; remainingCount: number }> {
-  if (typeof window === "undefined") return { syncedCount: 0, remainingCount: 0 };
-  if (getOfflineQueue().length === 0) return { syncedCount: 0, remainingCount: 0 };
+export interface SyncResult {
+  syncedCount: number;
+  remainingCount: number;
+  /**
+   * Uploads whose student already had a record in the same town + REV -
+   * usually one another marker saved while this phone was offline. The server
+   * stores them anyway (see POST /api/records); this count is what lets the
+   * sync message tell the marker to tidy up.
+   */
+  duplicateCount: number;
+}
+
+export async function syncOfflineQueue(): Promise<SyncResult> {
+  if (typeof window === "undefined") return { syncedCount: 0, remainingCount: 0, duplicateCount: 0 };
+  if (getOfflineQueue().length === 0) return { syncedCount: 0, remainingCount: 0, duplicateCount: 0 };
 
   return await withSyncLock(drainQueue, {
     syncedCount: 0,
     remainingCount: getOfflineQueue().length,
+    duplicateCount: 0,
   });
 }
 
-async function drainQueue(): Promise<{ syncedCount: number; remainingCount: number }> {
+async function drainQueue(): Promise<SyncResult> {
   // Re-read inside the lock: we may have waited for another tab, and it may
   // have already uploaded some or all of what we saw before acquiring.
   const queue = getOfflineQueue();
-  if (queue.length === 0) return { syncedCount: 0, remainingCount: 0 };
+  if (queue.length === 0) return { syncedCount: 0, remainingCount: 0, duplicateCount: 0 };
 
   let syncedCount = 0;
+  let duplicateCount = 0;
 
   for (const item of queue) {
     try {
@@ -200,11 +214,16 @@ async function drainQueue(): Promise<{ syncedCount: number; remainingCount: numb
         // removeOfflineRecord re-reads the queue, so a mark saved while this
         // drain is running still survives.
         removeOfflineRecord(item.tempId);
+
+        // Read only once the record is safely out of the queue. A body that
+        // fails to parse just goes uncounted - the upload itself succeeded.
+        const data = await res.json().catch(() => ({}));
+        if (data.duplicate_of) duplicateCount++;
       }
     } catch {
       // Network failure - leave it queued for the next drain.
     }
   }
 
-  return { syncedCount, remainingCount: getOfflineQueue().length };
+  return { syncedCount, remainingCount: getOfflineQueue().length, duplicateCount };
 }

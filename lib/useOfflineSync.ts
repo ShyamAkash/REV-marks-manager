@@ -5,6 +5,9 @@ import { getOfflineQueue, syncOfflineQueue, QUEUE_KEY } from "@/lib/offlineQueue
 import { triggerHaptic } from "@/lib/haptics";
 
 const POLL_MS = 15000;
+const CONFIRM_MS = 2500;
+/** Long enough to read, because it asks the marker to go and fix something. */
+const DUPLICATE_NOTICE_MS = 10_000;
 
 export interface OfflineSyncState {
   /** False during SSR and first hydration - render nothing status-related until true. */
@@ -18,8 +21,11 @@ export interface OfflineSyncState {
    * once the queue empties, which is indistinguishable from "nothing was ever
    * queued" — and this is the one moment a marker needs to know their offline
    * work actually reached the server.
+   *
+   * `duplicates` counts uploads the server stored as a second record for a
+   * student; when there are any, the notice is held for 10s instead.
    */
-  justSynced: number | null;
+  justSynced: { count: number; duplicates: number } | null;
   syncNow: () => Promise<void>;
 }
 
@@ -28,7 +34,7 @@ export function useOfflineSync(): OfflineSyncState {
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
-  const [justSynced, setJustSynced] = useState<number | null>(null);
+  const [justSynced, setJustSynced] = useState<OfflineSyncState["justSynced"]>(null);
 
   // Held in a ref so the interval and event listeners never capture a stale
   // version of the callback.
@@ -40,13 +46,16 @@ export function useOfflineSync(): OfflineSyncState {
     syncingRef.current = true;
     setSyncing(true);
     try {
-      const { syncedCount, remainingCount } = await syncOfflineQueue();
+      const { syncedCount, remainingCount, duplicateCount } = await syncOfflineQueue();
       setPendingCount(remainingCount);
       if (syncedCount > 0) {
-        triggerHaptic("success");
-        setJustSynced(syncedCount);
+        triggerHaptic(duplicateCount > 0 ? "warning" : "success");
+        setJustSynced({ count: syncedCount, duplicates: duplicateCount });
         if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-        confirmTimerRef.current = setTimeout(() => setJustSynced(null), 2500);
+        confirmTimerRef.current = setTimeout(
+          () => setJustSynced(null),
+          duplicateCount > 0 ? DUPLICATE_NOTICE_MS : CONFIRM_MS
+        );
       }
     } finally {
       syncingRef.current = false;
