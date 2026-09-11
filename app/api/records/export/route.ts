@@ -49,14 +49,27 @@ export async function GET(req: NextRequest) {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Sheet1");
 
+    // A paper with no structured essays has a Structured column of nothing but
+    // zeros, which reads as "everyone scored 0" rather than "this section does
+    // not exist". Only include a mark column the REV actually has questions
+    // for, matching what the marking form shows.
+    //
+    // When rev is null the REV row is missing, so the counts are unknown and
+    // every column is included rather than silently dropping real marks.
+    const hasMcq = !rev || Number(rev.num_mcq) > 0;
+    const hasStructured = !rev || Number(rev.num_structured) > 0;
+    const hasEssay = !rev || Number(rev.num_essay) > 0;
+
     sheet.columns = [
       { header: "Staff", key: "staff", width: 16 },
       { header: "Phone No.", key: "phone", width: 18 },
       { header: "Student Name", key: "name", width: 24 },
       { header: "Town", key: "town", width: 14 },
-      { header: "MCQ mark", key: "mcq", width: 10 },
-      { header: "Structured mark", key: "structured", width: 14 },
-      { header: "Essay mark", key: "essay", width: 10 },
+      ...(hasMcq ? [{ header: "MCQ mark", key: "mcq", width: 10 }] : []),
+      ...(hasStructured
+        ? [{ header: "Structured mark", key: "structured", width: 14 }]
+        : []),
+      ...(hasEssay ? [{ header: "Essay mark", key: "essay", width: 10 }] : []),
       { header: "Total", key: "total", width: 12 },
     ];
     sheet.getRow(1).font = { bold: true };
@@ -67,9 +80,9 @@ export async function GET(req: NextRequest) {
         phone: r.phone,
         name: r.name,
         town: r.town,
-        mcq: r.mcq,
-        structured: r.structured,
-        essay: r.essay,
+        ...(hasMcq ? { mcq: r.mcq } : {}),
+        ...(hasStructured ? { structured: r.structured } : {}),
+        ...(hasEssay ? { essay: r.essay } : {}),
         total: Number(r.total.toFixed(6)),
       });
     }

@@ -28,3 +28,6 @@ Thumbs.db
 
 # subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+#claude files
+docs/
