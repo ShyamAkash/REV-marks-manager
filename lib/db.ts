@@ -345,7 +345,9 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
         list = list.filter((r) => r.rev_id === Number(params[0]));
       }
     }
-    if (text.includes("ORDER BY updated_at DESC")) {
+    if (text.includes("ORDER BY updated_at ASC")) {
+      list.sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+    } else if (text.includes("ORDER BY updated_at DESC")) {
       list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     }
     return list;
@@ -367,20 +369,15 @@ export function sql(): QueryFn {
   if (!_sql) {
     try {
       _sql = neon(url);
-    } catch {
-      console.warn("[AI Studio] Neon initialization failed — falling back to mock");
+    } catch (err) {
+      console.error("[Database] Failed to initialize Neon client:", err);
       return mockQuery;
     }
   }
 
   return async (queryText: string, params?: any[]) => {
-    try {
-      if (!_sql) return await mockQuery(queryText, params);
-      return (await _sql(queryText, params)) as any[];
-    } catch (err) {
-      console.warn("[AI Studio] Database query failed — falling back to mock query", err);
-      return await mockQuery(queryText, params);
-    }
+    if (!_sql) return await mockQuery(queryText, params);
+    return (await _sql(queryText, params)) as any[];
   };
 }
 

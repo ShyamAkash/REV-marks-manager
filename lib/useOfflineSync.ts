@@ -58,6 +58,9 @@ export function useOfflineSync(): OfflineSyncState {
     setMounted(true);
     setIsOnline(navigator.onLine);
     setPendingCount(getOfflineQueue().length);
+    if (getOfflineQueue().length > 0) {
+      void syncNow();
+    }
 
     const onOnline = () => {
       setIsOnline(true);
@@ -84,7 +87,7 @@ export function useOfflineSync(): OfflineSyncState {
     window.addEventListener("storage", onStorage);
 
     const interval = setInterval(() => {
-      if (navigator.onLine && getOfflineQueue().length > 0) void syncNow();
+      if (getOfflineQueue().length > 0) void syncNow();
     }, POLL_MS);
 
     return () => {
