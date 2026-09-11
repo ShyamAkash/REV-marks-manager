@@ -4,8 +4,9 @@ import { useMemo, useRef, useState } from "react";
 import { calcTotal, type RevConfig } from "@/lib/calc";
 import { formatTotal } from "@/lib/format";
 import { triggerHaptic } from "@/lib/haptics";
-import { addOfflineRecord } from "@/lib/offlineQueue";
-import { formatSriLankanPhone, phoneDigits } from "@/lib/phone";
+import { findDuplicate } from "@/lib/duplicates";
+import { addOfflineRecord, updateOfflineRecord } from "@/lib/offlineQueue";
+import { formatSriLankanPhone } from "@/lib/phone";
 import {
   matchByName,
   matchByPhone,
@@ -13,6 +14,7 @@ import {
   type HistoryStudent,
 } from "@/lib/useStudentHistory";
 import { Button, Field, useToast } from "@/app/components/ui";
+import { DuplicateSheet } from "./DuplicateSheet";
 import type { MarkSession } from "./useMarkSession";
 import type { MarkEntry } from "./types";
 
@@ -35,11 +37,41 @@ function toNumber(value: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** fetch() rejects with one of these when there is no connection (Safari says "Load failed"). */
+function isNetworkError(message: string): boolean {
+  return (
+    (typeof navigator !== "undefined" && !navigator.onLine) ||
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Load failed")
+  );
+}
+
+/** A records row from the API, in the session list's shape. Postgres numerics arrive as strings. */
+function fromServerRow(r: MarkEntry, rev: RevConfig | null): MarkEntry {
+  const marks = {
+    mcq_mark: Number(r.mcq_mark),
+    structured_mark: Number(r.structured_mark),
+    essay_mark: Number(r.essay_mark),
+  };
+  return {
+    id: r.id,
+    student_name: r.student_name,
+    phone_no: r.phone_no,
+    ...marks,
+    staff: r.staff,
+    total: calcTotal(marks, rev),
+    isOffline: false,
+  };
+}
+
 export function MarkForm({
   session,
   currentRev,
   entries,
   onSaved,
+  onUpserted,
+  onRemoved,
 }: {
   session: MarkSession;
   currentRev: RevConfig | null;
@@ -50,6 +82,14 @@ export function MarkForm({
    */
   entries: MarkEntry[];
   onSaved: (entry: MarkEntry) => void;
+  /**
+   * Puts a record into the session list, replacing the entry with the same id
+   * (or tempId) - or adding it, when it is another marker's record this phone
+   * only learned about from the server's duplicate check.
+   */
+  onUpserted: (entry: MarkEntry) => void;
+  /** Drops an entry whose record turned out to be deleted server-side. */
+  onRemoved: (entry: MarkEntry) => void;
 }) {
   const toast = useToast();
 
@@ -72,29 +112,19 @@ export function MarkForm({
   );
 
   /**
-   * Warn when this student already has a record in this town + REV. Phone is
-   * checked first because it is the stronger identifier — two students can
-   * share a name, but not a number.
+   * This student's existing record in this town + REV, if this phone knows of
+   * one. Drives the warning while typing, and lets Save open the Replace / Keep
+   * sheet without a round trip - the server check still catches the records
+   * this phone has not seen. See lib/duplicates.ts for what counts as a match.
    */
-  const duplicate = useMemo(() => {
-    const typedDigits = phoneDigits(phone);
-    if (typedDigits.length >= 9) {
-      const byPhone = entries.find(
-        (e) => e.phone_no && phoneDigits(e.phone_no) === typedDigits
-      );
-      if (byPhone) return { by: "mobile" as const, entry: byPhone };
-    }
+  const duplicate = useMemo(
+    () => findDuplicate(entries, { student_name: studentName, phone_no: phone }),
+    [phone, studentName, entries]
+  );
 
-    const typedName = studentName.trim().toLowerCase();
-    if (typedName.length >= 3) {
-      const byName = entries.find(
-        (e) => (e.student_name ?? "").trim().toLowerCase() === typedName
-      );
-      if (byName) return { by: "name" as const, entry: byName };
-    }
-
-    return null;
-  }, [phone, studentName, entries]);
+  /** The record the Replace / Keep sheet is asking about; null while closed. */
+  const [conflict, setConflict] = useState<MarkEntry | null>(null);
+  const [replacing, setReplacing] = useState(false);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
@@ -166,11 +196,8 @@ export function MarkForm({
     }, 50);
   }
 
-  async function save() {
-    if (saving) return;
-    setSaving(true);
-
-    const payload = {
+  function currentPayload() {
+    return {
       town: session.town,
       rev_id: Number(session.revId),
       staff: session.checkedBy,
@@ -180,7 +207,28 @@ export function MarkForm({
       structured_mark: toNumber(structured),
       essay_mark: toNumber(essay),
     };
+  }
+
+  function askAboutDuplicate(existing: MarkEntry) {
+    triggerHaptic("warning");
+    setConflict(existing);
+  }
+
+  async function save() {
+    if (saving || conflict) return;
+
+    const payload = currentPayload();
     const total = calcTotal(payload, currentRev);
+
+    // Already known on this phone: ask straight away. While offline this is
+    // the only check there is.
+    const known = findDuplicate(entries, payload);
+    if (known) {
+      askAboutDuplicate(known.record);
+      return;
+    }
+
+    setSaving(true);
 
     function queueOffline(message: string) {
       const queued = addOfflineRecord(payload);
@@ -196,6 +244,15 @@ export function MarkForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      // The server knows a record this phone does not - usually one another
+      // marker saved after this session loaded its list.
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data.existing) {
+          askAboutDuplicate(fromServerRow(data.existing, currentRev));
+          return;
+        }
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to save");
@@ -207,12 +264,7 @@ export function MarkForm({
       resetAndRefocus();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to save";
-      const networkDown =
-        (typeof navigator !== "undefined" && !navigator.onLine) ||
-        message.includes("Failed to fetch") ||
-        message.includes("NetworkError") ||
-        message.includes("Load failed");
-      if (networkDown) {
+      if (isNetworkError(message)) {
         queueOffline("Connection lost - saved offline");
       } else {
         triggerHaptic("error");
@@ -221,6 +273,87 @@ export function MarkForm({
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Overwrite the record this student already has with the marks just typed. */
+  async function replaceExisting() {
+    if (!conflict || replacing) return;
+
+    const payload = currentPayload();
+    // A blank name or mobile here means "not retyped", not "erase it".
+    const updated = {
+      student_name: payload.student_name ?? conflict.student_name,
+      phone_no: payload.phone_no ?? conflict.phone_no,
+      mcq_mark: payload.mcq_mark,
+      structured_mark: payload.structured_mark,
+      essay_mark: payload.essay_mark,
+      staff: payload.staff,
+    };
+    const replaced: MarkEntry = {
+      ...conflict,
+      ...updated,
+      total: calcTotal(updated, currentRev),
+    };
+
+    // Not uploaded yet: change the queued copy, and it syncs with the new marks.
+    if (conflict.isOffline && conflict.tempId) {
+      updateOfflineRecord(conflict.tempId, updated);
+      finishReplace(replaced);
+      return;
+    }
+
+    setReplacing(true);
+    try {
+      const res = await fetch(`/api/records/${conflict.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      if (res.status === 404) {
+        // Deleted in Manage after it was found. Forget it, so pressing Save
+        // again stores these marks as a new record instead of re-asking.
+        onRemoved(conflict);
+        setConflict(null);
+        triggerHaptic("warning");
+        toast("That record was just deleted - press Save to add these marks", "warn");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to replace");
+      }
+      finishReplace(replaced);
+    } catch (e) {
+      // The sheet stays open, so Keep - or Replace again once back online - is
+      // still one tap away.
+      const message = e instanceof Error ? e.message : "Failed to replace";
+      triggerHaptic("error");
+      if (isNetworkError(message)) {
+        toast("Can't replace while offline - try again when connected", "warn");
+      } else {
+        toast(message, "danger");
+      }
+    } finally {
+      setReplacing(false);
+    }
+  }
+
+  function finishReplace(entry: MarkEntry) {
+    onUpserted(entry);
+    setConflict(null);
+    triggerHaptic("success");
+    toast("Replaced old marks");
+    resetAndRefocus();
+  }
+
+  /** Throw away what was typed; the stored record stays as it is. */
+  function keepExisting() {
+    // A record the server found is one this phone had not seen. Adding it to
+    // the list means the next check - and "View all" - knows it is there.
+    if (conflict) onUpserted(conflict);
+    setConflict(null);
+    toast("Kept old marks");
+    resetAndRefocus();
   }
 
   function advanceOn(
@@ -328,9 +461,9 @@ export function MarkForm({
           <p className="text-label text-warn">
             Already marked in {session.town} for this REV:{" "}
             <strong className="font-semibold">
-              {duplicate.entry.student_name || "this student"}
+              {duplicate.record.student_name || "this student"}
             </strong>{" "}
-            ({duplicate.by} matches). Saving will create a second record.
+            ({duplicate.by} matches). Saving will ask whether to replace those marks.
           </p>
         </div>
       )}
@@ -433,6 +566,22 @@ export function MarkForm({
       <Button size="lg" fullWidth loading={saving} onClick={save}>
         Save and next
       </Button>
+
+      <DuplicateSheet
+        existing={conflict}
+        incoming={{
+          mcq_mark: toNumber(mcq),
+          structured_mark: toNumber(structured),
+          essay_mark: toNumber(essay),
+        }}
+        currentRev={currentRev}
+        replacing={replacing}
+        onReplace={() => void replaceExisting()}
+        onKeep={keepExisting}
+        onClose={() => {
+          if (!replacing) setConflict(null);
+        }}
+      />
     </div>
   );
 }
