@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     const structured_mark = Number(body.structured_mark) || 0;
     const essay_mark = Number(body.essay_mark) || 0;
     // Set only by replays from the offline queue; a record entered while online
-    // has no client id and stays NULL. See migration_client_temp_id.sql.
+    // has no client id and stays NULL. See idx_records_client_temp_id in schema.sql.
     const client_temp_id = body.client_temp_id
       ? String(body.client_temp_id).trim()
       : null;
