@@ -19,6 +19,8 @@ interface InMemoryRecord {
   structured_mark: number;
   essay_mark: number;
   staff: string | null;
+  /** Set only on records replayed from a phone's offline queue. */
+  client_temp_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +53,7 @@ function getMockStore() {
           structured_mark: 78,
           essay_mark: 85,
           staff: "Mr. Fernando",
+          client_temp_id: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -64,6 +67,7 @@ function getMockStore() {
           structured_mark: 84,
           essay_mark: 91,
           staff: "Mr. Fernando",
+          client_temp_id: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -77,6 +81,7 @@ function getMockStore() {
           structured_mark: 65,
           essay_mark: 72,
           staff: "Ms. Silva",
+          client_temp_id: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -170,8 +175,19 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
 
   // 4. INSERT record
   if (text.startsWith("INSERT INTO records")) {
-    const [town, rev_id, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff] = params;
+    const [town, rev_id, student_name, phone_no, mcq_mark, structured_mark, essay_mark, staff, client_temp_id] = params;
     const now = new Date().toISOString();
+
+    // Mirror the unique index and ON CONFLICT DO NOTHING in production. Without
+    // this the mock happily stores duplicates, so the idempotency would look
+    // broken locally and work only once deployed - or worse, look fine locally
+    // and be wrong in a way nobody tested.
+    if (client_temp_id) {
+      const already = store.records.find(
+        (r) => r.client_temp_id === String(client_temp_id)
+      );
+      if (already) return [];
+    }
     const newRec: InMemoryRecord = {
       id: store.nextRecordId++,
       town: String(town),
@@ -182,6 +198,7 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
       structured_mark: Number(structured_mark) || 0,
       essay_mark: Number(essay_mark) || 0,
       staff: staff ? String(staff) : null,
+      client_temp_id: client_temp_id ? String(client_temp_id) : null,
       created_at: now,
       updated_at: now,
     };
@@ -236,6 +253,15 @@ async function mockQuery(queryText: string, params: any[] = []): Promise<any[]> 
       }
     }
     return results.sort((a, b) => a.student_name.localeCompare(b.student_name));
+  }
+
+  // 6c. SELECT a record by its client-generated id, used to answer a replay of
+  // something already stored. Without an explicit branch this falls through to
+  // the catch-all below, which ignores the WHERE and returns every record - so
+  // the API would hand back an unrelated student's row and call it a duplicate.
+  if (text.includes("FROM records") && text.includes("client_temp_id = $1")) {
+    const wanted = String(params[0] ?? "");
+    return store.records.filter((r) => r.client_temp_id === wanted);
   }
 
   // 7. SELECT records

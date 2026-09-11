@@ -178,6 +178,9 @@ async function drainQueue(): Promise<{ syncedCount: number; remainingCount: numb
           structured_mark: item.structured_mark,
           essay_mark: item.essay_mark,
           staff: item.staff,
+          // Lets the server recognise a replay of a record it already stored,
+          // and ignore it instead of creating a duplicate row.
+          client_temp_id: item.tempId,
         }),
       });
 
