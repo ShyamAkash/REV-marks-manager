@@ -1,9 +1,9 @@
 import { normalizeStudentPhone, phoneDigits } from "@/lib/phone";
 
 /** Enough digits to be a whole number, not one still being typed. */
-const MIN_PHONE_DIGITS = 9;
+export const MIN_PHONE_DIGITS = 9;
 /** Shorter names match too many different students to mean anything. */
-const MIN_NAME_CHARS = 3;
+export const MIN_NAME_CHARS = 3;
 
 export interface StudentIdentity {
   student_name: string | null | undefined;
@@ -15,8 +15,14 @@ export interface DuplicateMatch<T> {
   record: T;
 }
 
-/** The same number however it was typed: 0771234567, +94771234567, 771234567. */
-function phoneKey(value: string | null | undefined): string {
+/**
+ * The same number however it was typed: 0771234567, +94771234567, 771234567.
+ *
+ * Exported because the SQL that narrows the candidate set before this runs
+ * (lib/duplicates.server.ts) has to agree with it exactly - a row the query
+ * never returns is a duplicate this function will never see.
+ */
+export function phoneKey(value: string | null | undefined): string {
   return normalizeStudentPhone(value) ?? phoneDigits(value);
 }
 
