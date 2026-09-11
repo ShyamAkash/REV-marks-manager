@@ -59,8 +59,8 @@ that REV**, everywhere. `app/api/revs/route.ts` PUT deliberately touches `record
 such an edit so polling clients notice. If you change the formula, change it in `lib/calc.ts` only.
 
 `rev_id` is a foreign key to `rev_numbers.id`, not the display string. `rev_no` (e.g. `"REV 01"`) is
-for humans. `migration_rev_id.sql` exists only for installs predating that change — never run it on a
-fresh database.
+for humans. (Installs predating that change were upgraded by `migration_rev_id.sql`, since removed
+from the repo; it is in git history if an ancient database ever turns up.)
 
 ### Offline-first write path
 
@@ -96,10 +96,11 @@ row that already exists (plus `duplicate: true`) rather than an error — an err
 queued and retrying forever. Records entered online send no id and stay NULL, which Postgres treats as
 distinct, so they never collide with each other.
 
-**`migration_client_temp_id.sql` must be applied to the database before this code is deployed.** Not
-because of a missing feature, but because `sql()` swallows a failing query into the mock: an INSERT
-naming a column the database does not have would report "Saved" to the marker while the marks went
-nowhere.
+**The column and its unique index must exist in the database before this code is deployed.**
+`schema.sql` creates both for fresh installs; an existing database gets them from
+`neon-sql/00_add_client_temp_id.sql` (gitignored, handed to the database owner). Not because of a
+missing feature, but because `sql()` swallows a failing query into the mock: an INSERT naming a
+column the database does not have would report "Saved" to the marker while the marks went nowhere.
 
 ### Offline sync and service-worker registration run app-wide
 
