@@ -3,6 +3,7 @@ import { OfflineIndicator } from "@/app/components/OfflineIndicator";
 
 const SECTIONS = [
   { href: "/manage/records", label: "Records" },
+  { href: "/manage/students", label: "Students" },
   { href: "/manage/rank", label: "Rank Sheet" },
   { href: "/manage/revs", label: "REV Numbers" },
 ];

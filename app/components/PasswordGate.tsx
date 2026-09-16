@@ -212,7 +212,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
                 id="app-device-password-input"
                 label="Access Password"
                 type={showPassword ? "text" : "password"}
-                placeholder="Enter password"
+                placeholder="Enter access password"
                 value={password}
                 autoComplete="current-password"
                 enterKeyHint="done"

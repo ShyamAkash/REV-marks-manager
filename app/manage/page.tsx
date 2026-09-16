@@ -11,6 +11,11 @@ const SECTIONS = [
     hint: "Browse, edit and export marks",
   },
   {
+    href: "/manage/students",
+    label: "Students",
+    hint: "Directory, assigned towns & performance history",
+  },
+  {
     href: "/manage/rank",
     label: "Rank Sheet",
     hint: "Generate a ranked PDF",
