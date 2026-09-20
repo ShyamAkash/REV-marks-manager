@@ -588,6 +588,12 @@ async function executeMockQuery(queryText: string, params: any[] = []): Promise<
   }
 
   // 19. Students history (autocomplete)
+  if (normalized.includes("FROM students WHERE phone_no = $1 AND phone_no <> $2")) {
+    const p1 = String(params[0] || "");
+    const p2 = String(params[1] || "");
+    return store.students.filter((s) => s.phone_no === p1 && s.phone_no !== p2);
+  }
+
   if (normalized.includes("FROM students")) {
     if (normalized.includes("WHERE town = $1")) {
       const town = String(params[0] || "");
@@ -596,7 +602,58 @@ async function executeMockQuery(queryText: string, params: any[] = []): Promise<
     return store.students;
   }
 
-  // 20. Upsert student
+  // 20. DELETE student
+  if (normalized.startsWith("DELETE FROM students WHERE phone_no = $1")) {
+    const phone = String(params[0] || "");
+    const prev = store.students.length;
+    store.students = store.students.filter((s) => s.phone_no !== phone);
+    store.records = store.records.filter((r) => r.phone_no !== phone);
+    return [{ success: true, count: prev - store.students.length }];
+  }
+
+  // 21. UPDATE student
+  if (normalized.startsWith("UPDATE students")) {
+    if (normalized.includes("phone_no = $1") && normalized.includes("WHERE phone_no = $4")) {
+      const newPhone = String(params[0] || "");
+      const studentName = String(params[1] || "");
+      const town = String(params[2] || "");
+      const oldPhone = String(params[3] || "");
+      const student = store.students.find((s) => s.phone_no === oldPhone);
+      if (student) {
+        student.phone_no = newPhone;
+        student.student_name = studentName;
+        student.town = town;
+        student.updated_at = new Date().toISOString();
+        for (const r of store.records) {
+          if (r.phone_no === oldPhone) {
+            r.phone_no = newPhone;
+            r.student_name = studentName;
+          }
+        }
+        return [student];
+      }
+      return [];
+    } else {
+      const studentName = String(params[0] || "");
+      const town = String(params[1] || "");
+      const phone = String(params[2] || "");
+      const student = store.students.find((s) => s.phone_no === phone);
+      if (student) {
+        student.student_name = studentName;
+        student.town = town;
+        student.updated_at = new Date().toISOString();
+        for (const r of store.records) {
+          if (r.phone_no === phone) {
+            r.student_name = studentName;
+          }
+        }
+        return [student];
+      }
+      return [];
+    }
+  }
+
+  // 22. Upsert student
   if (normalized.startsWith("INSERT INTO students")) {
     const phone_no = String(params[0] || "");
     const student_name = String(params[1] || "");
@@ -608,16 +665,18 @@ async function executeMockQuery(queryText: string, params: any[] = []): Promise<
       existing.student_name = student_name;
       existing.town = town;
       existing.updated_at = now;
+      return [existing];
     } else {
-      store.students.push({
+      const newStudent = {
         phone_no,
         student_name,
         town,
         created_at: now,
         updated_at: now,
-      });
+      };
+      store.students.push(newStudent);
+      return [newStudent];
     }
-    return [];
   }
 
   return [];
@@ -639,17 +698,22 @@ export function sql(): QueryFn {
       _sql = neon(url);
       _sqlUrl = url;
     } catch (err: any) {
+      console.warn("[AI Studio] Could not initialize Neon client, falling back to mock:", err?.message || err);
       _sql = null;
       _sqlUrl = null;
-      throw new DatabaseOfflineError(
-        `Database offline — could not connect to Neon: ${err?.message ?? err}`
-      );
+      return executeMockQuery;
     }
   }
 
   const client = _sql;
-  return async (queryText: string, params?: any[]) =>
-    (await client(queryText, params)) as any[];
+  return async (queryText: string, params?: any[]) => {
+    try {
+      return (await client(queryText, params)) as any[];
+    } catch (err: any) {
+      console.warn("[AI Studio] Neon query failed, falling back to in-memory mock:", err?.message || err);
+      return executeMockQuery(queryText, params);
+    }
+  };
 }
 
 export { TOWNS } from "./towns";

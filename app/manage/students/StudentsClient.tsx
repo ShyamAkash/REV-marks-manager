@@ -1,15 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, MapPin, Phone, GraduationCap, ArrowRight, X, User, Award } from "lucide-react";
+import {
+  Search,
+  MapPin,
+  Phone,
+  ArrowRight,
+  X,
+  User,
+  Plus,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+} from "lucide-react";
 import { Card } from "@/app/components/ui/Card";
+import { Button } from "@/app/components/ui/Button";
 import { Field } from "@/app/components/ui/Field";
 import { Select } from "@/app/components/ui/Select";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { EmptyState } from "@/app/components/ui/EmptyState";
 import { TOWNS } from "@/lib/towns";
 import { formatTotal } from "@/lib/format";
+import { StudentModal } from "./StudentModal";
+import { DeleteStudentModal } from "./DeleteStudentModal";
 
 interface StudentItem {
   phone_no: string;
@@ -34,6 +48,16 @@ export default function StudentsClient() {
 
   const [selectedTown, setSelectedTown] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // Modals state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"add" | "edit">("add");
+  const [editingStudent, setEditingStudent] = useState<StudentItem | null>(null);
+
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deletingStudent, setDeletingStudent] = useState<StudentItem | null>(null);
+
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const fetchStudents = useCallback(async (town: string, search: string) => {
     setLoading(true);
@@ -65,6 +89,14 @@ export default function StudentsClient() {
     return () => clearTimeout(timer);
   }, [selectedTown, searchQuery, fetchStudents]);
 
+  // Auto-dismiss feedback message
+  useEffect(() => {
+    if (feedback) {
+      const t = setTimeout(() => setFeedback(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [feedback]);
+
   const totalRegistered = students.length;
 
   const handleClearSearch = () => {
@@ -76,24 +108,95 @@ export default function StudentsClient() {
     setSearchQuery("");
   };
 
+  const handleOpenAdd = () => {
+    setModalMode("add");
+    setEditingStudent(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEdit = (student: StudentItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalMode("edit");
+    setEditingStudent(student);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenDelete = (student: StudentItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeletingStudent(student);
+    setIsDeleteOpen(true);
+  };
+
+  const handleModalSuccess = (savedStudent: { phone_no: string; student_name: string; town: string }) => {
+    setFeedback(
+      modalMode === "add"
+        ? `Added student ${savedStudent.student_name} successfully.`
+        : `Updated student ${savedStudent.student_name} successfully.`
+    );
+    fetchStudents(selectedTown, searchQuery);
+  };
+
+  const handleDeleteSuccess = (deletedPhone: string) => {
+    setFeedback(`Deleted student (${deletedPhone}) successfully.`);
+    fetchStudents(selectedTown, searchQuery);
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Page Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 id="students-page-title" className="text-display font-bold tracking-tight text-paper">
             Students
           </h1>
+          <p className="mt-1 text-label text-dim">
+            Manage student profiles, contact numbers, and assigned towns.
+          </p>
         </div>
-        {!loading && (
-          <span
-            id="students-count-badge"
-            className="self-start rounded-full border border-line bg-surface-2 px-3 py-1 text-label font-medium text-paper sm:self-auto"
+
+        <div className="flex items-center gap-3">
+          {!loading && (
+            <span
+              id="students-count-badge"
+              className="hidden rounded-full border border-line bg-surface-2 px-3 py-1 text-label font-medium text-paper sm:inline-block"
+            >
+              {totalRegistered} {totalRegistered === 1 ? "student" : "students"}
+            </span>
+          )}
+          <Button
+            id="add-student-btn"
+            variant="primary"
+            size="md"
+            onClick={handleOpenAdd}
           >
-            {totalRegistered} {totalRegistered === 1 ? "student" : "students"}
-          </span>
-        )}
+            <Plus className="h-4 w-4" />
+            Add Student
+          </Button>
+        </div>
       </div>
+
+      {/* Success Feedback Banner */}
+      {feedback && (
+        <div
+          id="student-feedback-banner"
+          className="flex items-center justify-between gap-3 rounded-control border border-brand/50 bg-brand-dim p-4 text-paper"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-brand-hot" />
+            <span className="text-body font-medium">{feedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-dim hover:text-paper"
+            aria-label="Dismiss message"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <Card id="students-filter-card" className="p-4 sm:p-5">
@@ -223,7 +326,7 @@ export default function StudentsClient() {
           hint={
             searchQuery || selectedTown
               ? "Try adjusting your search query or town filter to find the student."
-              : "Students will automatically appear here once paper marks or sessions are recorded."
+              : "Register students manually using the 'Add Student' button, or they will be automatically recorded during marking sessions."
           }
           action={
             searchQuery || selectedTown ? (
@@ -234,7 +337,17 @@ export default function StudentsClient() {
               >
                 Clear Filters
               </button>
-            ) : undefined
+            ) : (
+              <Button
+                id="empty-state-add-student-btn"
+                variant="primary"
+                size="md"
+                onClick={handleOpenAdd}
+              >
+                <Plus className="h-4 w-4" />
+                Add First Student
+              </Button>
+            )
           }
         />
       )}
@@ -248,16 +361,15 @@ export default function StudentsClient() {
             const detailUrl = `/manage/students/${encodeURIComponent(student.phone_no)}`;
 
             return (
-              <Link
+              <div
                 key={student.phone_no}
                 id={`student-row-${student.phone_no}`}
-                href={detailUrl}
                 className="group block transition-all"
               >
                 <Card className="p-4 transition-colors hover:border-brand/60 hover:bg-surface-2 sm:p-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     {/* Left: Student Identity */}
-                    <div className="flex items-start gap-3">
+                    <Link href={detailUrl} className="flex flex-1 items-start gap-3 min-w-0">
                       <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-control border border-line bg-surface-2 text-dim group-hover:border-brand/40 group-hover:text-brand-hot">
                         <User className="h-5 w-5" />
                       </div>
@@ -286,10 +398,10 @@ export default function StudentsClient() {
                           )}
                         </div>
                       </div>
-                    </div>
+                    </Link>
 
-                    {/* Right: Academic Performance & Action */}
-                    <div className="flex items-center justify-between gap-4 border-t border-line/40 pt-3 sm:border-t-0 sm:pt-0">
+                    {/* Right: Academic Performance & Actions */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/40 pt-3 sm:border-t-0 sm:pt-0">
                       <div className="flex items-center gap-4 sm:text-right">
                         <div>
                           <div className="text-micro uppercase tracking-wider text-dim">Exams</div>
@@ -308,22 +420,78 @@ export default function StudentsClient() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 pl-2">
-                        <span className="hidden text-label font-medium text-dim group-hover:text-paper md:inline">
-                          View History
-                        </span>
-                        <div className="flex h-9 w-9 items-center justify-center rounded-control border border-line bg-surface text-dim transition-colors group-hover:border-brand-hot group-hover:bg-brand-deep group-hover:text-white">
+                      {/* Action buttons: Edit, Delete, View */}
+                      <div className="flex items-center gap-1.5 sm:pl-2">
+                        <button
+                          type="button"
+                          id={`edit-student-${student.phone_no}-btn`}
+                          onClick={(e) => handleOpenEdit(student, e)}
+                          title="Edit Student"
+                          aria-label={`Edit ${student.student_name}`}
+                          className="flex h-9 w-9 items-center justify-center rounded-control border border-line bg-surface text-dim transition-colors hover:border-brand-hot hover:bg-surface-2 hover:text-paper"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          id={`delete-student-${student.phone_no}-btn`}
+                          onClick={(e) => handleOpenDelete(student, e)}
+                          title="Delete Student"
+                          aria-label={`Delete ${student.student_name}`}
+                          className="flex h-9 w-9 items-center justify-center rounded-control border border-line bg-surface text-dim transition-colors hover:border-danger/60 hover:bg-danger/10 hover:text-danger"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+
+                        <Link
+                          href={detailUrl}
+                          title="View History"
+                          aria-label={`View history for ${student.student_name}`}
+                          className="flex h-9 w-9 items-center justify-center rounded-control border border-line bg-surface text-dim transition-colors hover:border-brand-hot hover:bg-brand-deep hover:text-white"
+                        >
                           <ArrowRight className="h-4 w-4" />
-                        </div>
+                        </Link>
                       </div>
                     </div>
                   </div>
                 </Card>
-              </Link>
+              </div>
             );
           })}
         </div>
       )}
+
+      {/* Add / Edit Student Modal */}
+      <StudentModal
+        isOpen={isModalOpen}
+        mode={modalMode}
+        initialData={
+          editingStudent
+            ? {
+                phone_no: editingStudent.phone_no,
+                student_name: editingStudent.student_name,
+                town: editingStudent.town,
+              }
+            : undefined
+        }
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingStudent(null);
+        }}
+        onSuccess={handleModalSuccess}
+      />
+
+      {/* Delete Student Modal */}
+      <DeleteStudentModal
+        isOpen={isDeleteOpen}
+        student={deletingStudent}
+        onClose={() => {
+          setIsDeleteOpen(false);
+          setDeletingStudent(null);
+        }}
+        onSuccess={handleDeleteSuccess}
+      />
     </div>
   );
 }

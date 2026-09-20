@@ -6,6 +6,7 @@ import type { RevConfig } from "@/lib/calc";
 // Unchanged from the previous implementation on purpose - see constraint above.
 const SESSION_KEY = "marks_session_v2";
 const LAST_STAFF_KEY = "revmarks_last_staff";
+const SESSION_ID_KEY = "revmarks_active_session_id";
 
 export interface MarkSession {
   town: string;
@@ -13,10 +14,25 @@ export interface MarkSession {
   checkedBy: string;
 }
 
+function getOrCreateSessionId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    let id = sessionStorage.getItem(SESSION_ID_KEY);
+    if (!id) {
+      id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      sessionStorage.setItem(SESSION_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  }
+}
+
 export function useMarkSession() {
   const [session, setSession] = useState<MarkSession | null>(null);
   const [revs, setRevs] = useState<RevConfig[]>([]);
   const [ready, setReady] = useState(false);
+  const [sessionId, setSessionId] = useState("");
 
   useEffect(() => {
     fetch("/api/revs")
@@ -25,6 +41,9 @@ export function useMarkSession() {
       .catch(() => {});
 
     try {
+      const sid = getOrCreateSessionId();
+      setSessionId(sid);
+
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (raw) {
         const s = JSON.parse(raw);
@@ -41,31 +60,101 @@ export function useMarkSession() {
     setReady(true);
   }, []);
 
-  const startSession = useCallback((s: MarkSession) => {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    // Remembered across sessions so the marker does not retype their own name.
-    // Guarded because this write is new in the redesign and is a convenience
-    // only: localStorage throws in Safari private browsing and wherever site
-    // data is blocked, and an unguarded throw here would abort startSession
-    // before setSession runs — silently preventing marking from starting at
-    // all. Failing to remember a name must never cost a marking session.
-    try {
-      localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
-    } catch {}
-    setSession(s);
-  }, []);
-
-  const endSession = useCallback(() => {
-    sessionStorage.removeItem(SESSION_KEY);
-    setSession(null);
-  }, []);
-
   const currentRev = useMemo(
     () => revs.find((r) => String(r.id) === session?.revId) ?? null,
     [revs, session]
   );
 
-  return { session, revs, currentRev, startSession, endSession, ready };
+  // Send periodic heartbeat to keep the active session registered for admins
+  useEffect(() => {
+    if (!session || !sessionId) return;
+
+    const reportHeartbeat = (marksCount?: number) => {
+      fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sessionId,
+          staffName: session.checkedBy,
+          town: session.town,
+          revId: session.revId,
+          revNo: currentRev?.rev_no,
+          marksCount,
+        }),
+      }).catch(() => {});
+    };
+
+    reportHeartbeat();
+    const interval = setInterval(reportHeartbeat, 25_000);
+
+    return () => clearInterval(interval);
+  }, [session, sessionId, currentRev]);
+
+  const startSession = useCallback((s: MarkSession) => {
+    const sid = getOrCreateSessionId();
+    setSessionId(sid);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    try {
+      localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
+    } catch {}
+    setSession(s);
+
+    // Immediate registration
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: sid,
+        staffName: s.checkedBy,
+        town: s.town,
+        revId: s.revId,
+      }),
+    }).catch(() => {});
+  }, []);
+
+  const endSession = useCallback(() => {
+    const sid = sessionId || getOrCreateSessionId();
+    if (sid) {
+      fetch(`/api/sessions?id=${encodeURIComponent(sid)}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_ID_KEY);
+    } catch {}
+    setSession(null);
+    setSessionId("");
+  }, [sessionId]);
+
+  const reportMarksCount = useCallback(
+    (count: number) => {
+      if (!session || !sessionId) return;
+      fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: sessionId,
+          staffName: session.checkedBy,
+          town: session.town,
+          revId: session.revId,
+          revNo: currentRev?.rev_no,
+          marksCount: count,
+        }),
+      }).catch(() => {});
+    },
+    [session, sessionId, currentRev]
+  );
+
+  return {
+    session,
+    revs,
+    currentRev,
+    startSession,
+    endSession,
+    reportMarksCount,
+    ready,
+  };
 }
 
 export function getLastStaff(): string {

@@ -18,10 +18,23 @@ function isSameEntry(a: MarkEntry, b: MarkEntry): boolean {
 }
 
 export function MarkScreen() {
-  const { session, revs, currentRev, startSession, endSession, ready } =
-    useMarkSession();
+  const {
+    session,
+    revs,
+    currentRev,
+    startSession,
+    endSession,
+    reportMarksCount,
+    ready,
+  } = useMarkSession();
   const [entries, setEntries] = useState<MarkEntry[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (session && entries.length > 0) {
+      reportMarksCount(entries.length);
+    }
+  }, [session, entries.length, reportMarksCount]);
 
   const loadEntries = useCallback(async () => {
     if (!session) return;

@@ -122,3 +122,126 @@ export async function GET(
     );
   }
 }
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ phone: string }> }
+) {
+  try {
+    const { phone: rawPhone } = await params;
+    const currentPhone = decodeURIComponent(rawPhone || "").trim();
+
+    if (!currentPhone) {
+      return NextResponse.json({ error: "Phone number required" }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const student_name = String(body.student_name || "").trim();
+    const town = String(body.town || "").trim();
+    const new_phone_no = body.phone_no ? String(body.phone_no).trim() : currentPhone;
+
+    if (!student_name) {
+      return NextResponse.json({ error: "Student name is required" }, { status: 400 });
+    }
+    if (!town) {
+      return NextResponse.json({ error: "Town is required" }, { status: 400 });
+    }
+    if (!new_phone_no) {
+      return NextResponse.json({ error: "Phone number is required" }, { status: 400 });
+    }
+
+    const db = sql();
+
+    // If phone number is changing, verify no clash
+    if (new_phone_no !== currentPhone) {
+      const clash = await db(
+        `SELECT phone_no FROM students WHERE phone_no = $1 AND phone_no <> $2`,
+        [new_phone_no, currentPhone]
+      );
+      if (clash.length > 0) {
+        return NextResponse.json(
+          { error: `Another student already has phone number "${new_phone_no}".` },
+          { status: 409 }
+        );
+      }
+
+      await db(
+        `UPDATE students 
+         SET phone_no = $1, student_name = $2, town = $3, updated_at = NOW() 
+         WHERE phone_no = $4`,
+        [new_phone_no, student_name, town, currentPhone]
+      );
+
+      // Keep records linked
+      await db(
+        `UPDATE records 
+         SET phone_no = $1, student_name = $2, updated_at = NOW() 
+         WHERE phone_no = $3`,
+        [new_phone_no, student_name, currentPhone]
+      );
+    } else {
+      await db(
+        `UPDATE students 
+         SET student_name = $1, town = $2, updated_at = NOW() 
+         WHERE phone_no = $3`,
+        [student_name, town, currentPhone]
+      );
+
+      // Keep records student_name updated
+      await db(
+        `UPDATE records 
+         SET student_name = $1, updated_at = NOW() 
+         WHERE phone_no = $2`,
+        [student_name, currentPhone]
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      student: {
+        phone_no: new_phone_no,
+        student_name,
+        town,
+        updated_at: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: errorStatus(err) }
+    );
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ phone: string }> }
+) {
+  try {
+    const { phone: rawPhone } = await params;
+    const phone = decodeURIComponent(rawPhone || "").trim();
+
+    if (!phone) {
+      return NextResponse.json({ error: "Phone number required" }, { status: 400 });
+    }
+
+    const db = sql();
+
+    // Delete student
+    await db(`DELETE FROM students WHERE phone_no = $1`, [phone]);
+
+    // Also delete any associated test records
+    await db(`DELETE FROM records WHERE phone_no = $1`, [phone]);
+
+    return NextResponse.json({
+      success: true,
+      message: `Student ${phone} and all associated records deleted successfully.`,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: errorStatus(err) }
+    );
+  }
+}
+

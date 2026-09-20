@@ -13,40 +13,98 @@
  */
 
 /** The cookie the browser sends back; httpOnly, so page scripts never see it. */
+export type UserRole = "admin" | "marker";
+
+/** The cookie the browser sends back; httpOnly, so page scripts never see it. */
 export const AUTH_COOKIE = "revmarks_auth";
 
 /** One year, matching the cookie's Max-Age. */
 export const AUTH_COOKIE_MAX_AGE = 31536000;
 
-const TOKEN_HMAC_KEY = "revmarks_auth_secret_key_v1";
+const TOKEN_HMAC_KEY = "revmarks_auth_secret_key_v2";
 
 export class AppPasswordNotSetError extends Error {
   constructor() {
     super(
-      "APP_PASSWORD is not set. RevMarks cannot verify anyone until it is configured."
+      "Role passwords are not set. RevMarks cannot verify anyone until configured."
     );
     this.name = "AppPasswordNotSetError";
   }
 }
 
-export function getAppPassword(): string {
-  const envPassword = process.env.APP_PASSWORD;
-  if (typeof envPassword === "string" && envPassword.trim().length > 0) {
-    return envPassword.trim();
-  }
-  throw new AppPasswordNotSetError();
+export function hasCustomRolePasswords(): boolean {
+  return Boolean(
+    process.env.ADMIN_PASSWORD ||
+      process.env.MARKER_PASSWORD ||
+      process.env.APP_PASSWORD ||
+      process.env.ADMIN_PASSWORD_1 ||
+      process.env.MARKER_PASSWORD_1
+  );
 }
 
-/**
- * Memoised per password, so the HMAC is derived once per runtime instance
- * rather than on every request. Keyed on the password itself, so rotating
- * `APP_PASSWORD` recomputes instead of serving a stale token.
- */
-let cached: { password: string; token: string } | null = null;
+export function getAdminPassword(): string {
+  return (
+    process.env.ADMIN_PASSWORD?.trim() ||
+    process.env.APP_PASSWORD?.trim() ||
+    process.env.ADMIN_PASSWORD_1?.trim() ||
+    ""
+  );
+}
 
-export async function getExpectedToken(): Promise<string> {
-  const password = getAppPassword();
-  if (cached && cached.password === password) return cached.token;
+export function getMarkerPassword(): string {
+  return (
+    process.env.MARKER_PASSWORD?.trim() ||
+    process.env.MARKER_PASSWORD_1?.trim() ||
+    ""
+  );
+}
+
+export function getAdminPasswords(): string[] {
+  const pw = getAdminPassword();
+  return pw ? [pw] : [];
+}
+
+export function getMarkerPasswords(): string[] {
+  const pw = getMarkerPassword();
+  return pw ? [pw] : [];
+}
+
+/** Legacy helper */
+export function getAppPassword(): string {
+  return getAdminPassword();
+}
+
+export function determineRole(submittedPassword: string): UserRole | null {
+  const trimmed = submittedPassword.trim();
+  if (!trimmed) return null;
+
+  const adminPw = getAdminPassword();
+  if (adminPw && constantTimeEqual(trimmed, adminPw)) {
+    return "admin";
+  }
+
+  const markerPw = getMarkerPassword();
+  if (markerPw && constantTimeEqual(trimmed, markerPw)) {
+    return "marker";
+  }
+
+  return null;
+}
+
+const roleTokenCache = new Map<string, string>();
+
+export async function getExpectedRoleToken(role: UserRole): Promise<string> {
+  const secretComponent =
+    role === "admin" ? getAdminPassword() : getMarkerPassword();
+
+  if (!secretComponent) {
+    throw new AppPasswordNotSetError();
+  }
+
+  const cacheKey = `${role}:${secretComponent}`;
+  if (roleTokenCache.has(cacheKey)) {
+    return roleTokenCache.get(cacheKey)!;
+  }
 
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -56,20 +114,26 @@ export async function getExpectedToken(): Promise<string> {
     false,
     ["sign"]
   );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(password));
-  const token = Array.from(new Uint8Array(signature))
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`${role}:${secretComponent}`)
+  );
+  const sigHex = Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  cached = { password, token };
-  return token;
+  const fullToken = `${role}.${sigHex}`;
+  roleTokenCache.set(cacheKey, fullToken);
+  return fullToken;
+}
+
+export async function getExpectedToken(): Promise<string> {
+  return getExpectedRoleToken("admin");
 }
 
 /**
- * Length-independent comparison of two strings. `timingSafeEqual` is not
- * available on the Edge runtime, so the token check uses this instead; the
- * length difference still leaks, which for a fixed-length hex digest tells an
- * attacker nothing they did not already know.
+ * Length-independent comparison of two strings.
  */
 export function constantTimeEqual(a: string, b: string): boolean {
   let diff = a.length ^ b.length;
@@ -80,10 +144,61 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Throws `AppPasswordNotSetError` when the deployment has no password set. */
+export interface VerifiedAuth {
+  valid: boolean;
+  role: UserRole | null;
+}
+
+export async function verifyRoleToken(
+  token: string | null | undefined
+): Promise<VerifiedAuth> {
+  if (!token || typeof token !== "string") {
+    return { valid: false, role: null };
+  }
+
+  const adminPw = getAdminPassword();
+  const markerPw = getMarkerPassword();
+
+  // Format: role.sigHex
+  if (adminPw && token.startsWith("admin.")) {
+    try {
+      const expected = await getExpectedRoleToken("admin");
+      if (constantTimeEqual(token, expected)) {
+        return { valid: true, role: "admin" };
+      }
+    } catch {
+      // Env var not set
+    }
+  } else if (markerPw && token.startsWith("marker.")) {
+    try {
+      const expected = await getExpectedRoleToken("marker");
+      if (constantTimeEqual(token, expected)) {
+        return { valid: true, role: "marker" };
+      }
+    } catch {
+      // Env var not set
+    }
+  }
+
+  // Backwards compatibility with legacy token
+  if (adminPw) {
+    try {
+      const legacyAdminToken = await getExpectedToken();
+      if (constantTimeEqual(token, legacyAdminToken)) {
+        return { valid: true, role: "admin" };
+      }
+    } catch {
+      // Env var not set
+    }
+  }
+
+  return { valid: false, role: null };
+}
+
+/** Backwards-compatible verifyToken returns true if valid for any role */
 export async function verifyToken(
   token: string | null | undefined
 ): Promise<boolean> {
-  if (!token || typeof token !== "string") return false;
-  return constantTimeEqual(token, await getExpectedToken());
+  const result = await verifyRoleToken(token);
+  return result.valid;
 }

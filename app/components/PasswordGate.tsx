@@ -8,27 +8,24 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, ShieldAlert } from "lucide-react";
 import { Button, Field } from "@/app/components/ui";
 
-/**
- * "This device has been unlocked" - a hint, not a credential. The credential is
- * the httpOnly `revmarks_auth` cookie, which page scripts cannot read; it is
- * what middleware.ts checks on every /api/* request. This flag exists so the
- * app opens straight into Mark mode with no connection, where asking the server
- * is not an option.
- */
 const AUTH_UNLOCKED_KEY = "revmarks_auth_unlocked";
-/** The pre-httpOnly scheme kept the token itself here. Migrated away on mount. */
+const AUTH_ROLE_KEY = "revmarks_auth_role";
 const LEGACY_TOKEN_KEY = "revmarks_auth_token";
+
+export type UserRole = "admin" | "marker";
 
 interface AuthContextType {
   isAuthenticated: boolean;
+  role: UserRole | null;
   lockDevice: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
+  role: null,
   lockDevice: async () => {},
 });
 
@@ -37,10 +34,8 @@ export function useAuth() {
 }
 
 export function PasswordGate({ children }: { children: React.ReactNode }) {
-  // "loading" = checking local storage/cookie
-  // "locked" = needs password
-  // "authenticated" = verified on this device
   const [status, setStatus] = useState<"loading" | "locked" | "authenticated">("loading");
+  const [role, setRole] = useState<UserRole | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -52,57 +47,55 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     let unlocked = false;
+    let savedRole: UserRole | null = null;
     try {
-      // The old scheme stored the token in localStorage and set the cookie from
-      // JS. The cookie it left behind holds the same value the server issues, so
-      // it still passes middleware - only the local bookkeeping moves.
       if (localStorage.getItem(LEGACY_TOKEN_KEY)) {
         localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
         localStorage.removeItem(LEGACY_TOKEN_KEY);
       }
       unlocked = localStorage.getItem(AUTH_UNLOCKED_KEY) === "true";
+      const stored = localStorage.getItem(AUTH_ROLE_KEY);
+      if (stored === "admin" || stored === "marker") {
+        savedRole = stored;
+      }
     } catch {
-      // localStorage unavailable (Safari private browsing): fall through to the
-      // server check, and to the password screen if that cannot be reached.
+      // localStorage unavailable
     }
 
-    // Show the app immediately rather than blocking on the network; the check
-    // below revokes access if the password has since been changed.
     if (unlocked) {
+      if (savedRole) setRole(savedRole);
       setStatus("authenticated");
     } else if (typeof navigator !== "undefined" && !navigator.onLine) {
-      // Never unlocked here and no way to ask. Nothing to do but prompt.
       setStatus("locked");
       return;
     }
 
-    // No Authorization header: the token is in an httpOnly cookie the browser
-    // attaches itself, and the page can no longer read it.
     fetch("/api/auth/verify")
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
         if (data && data.authenticated) {
+          const detectedRole: UserRole = data.role === "marker" ? "marker" : "admin";
           try {
             localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
+            localStorage.setItem(AUTH_ROLE_KEY, detectedRole);
           } catch {}
+          setRole(detectedRole);
           setStatus("authenticated");
           return;
         }
-        // Either this device was never unlocked, or APP_PASSWORD was changed
-        // and the cookie it holds no longer matches.
+
         try {
           localStorage.removeItem(AUTH_UNLOCKED_KEY);
+          localStorage.removeItem(AUTH_ROLE_KEY);
         } catch {}
+        setRole(null);
         setStatus("locked");
         if (unlocked) {
-          setError(
-            "Server access password was updated. Please enter the new password."
-          );
+          setError("Password was updated. Please enter your password to continue.");
         }
       })
       .catch(() => {
-        // Ignore network drops; keep offline access valid.
         if (!cancelled && !unlocked) setStatus("locked");
       });
 
@@ -142,13 +135,12 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        // The server has already set the httpOnly cookie on this response. All
-        // that is kept here is the flag that lets the app open offline next time.
+        const assignedRole: UserRole = data.role === "marker" ? "marker" : "admin";
         try {
           localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
-        } catch {
-          // continue even if localStorage fails
-        }
+          localStorage.setItem(AUTH_ROLE_KEY, assignedRole);
+        } catch {}
+        setRole(assignedRole);
         setStatus("authenticated");
         setPassword("");
       } else {
@@ -166,15 +158,14 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
   const lockDevice = useCallback(async () => {
     try {
       localStorage.removeItem(AUTH_UNLOCKED_KEY);
+      localStorage.removeItem(AUTH_ROLE_KEY);
       localStorage.removeItem(LEGACY_TOKEN_KEY);
-      // Only the server can clear the httpOnly cookie - that is what the DELETE
-      // below is for. This assignment clears a leftover JS-set one from the
-      // previous scheme.
       document.cookie = "revmarks_auth=; Max-Age=0; path=/;";
       await fetch("/api/auth/verify", { method: "DELETE" }).catch(() => {});
     } catch {
       // ignore
     }
+    setRole(null);
     setPassword("");
     setError(null);
     setStatus("locked");
@@ -185,7 +176,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-dvh items-center justify-center bg-ink text-paper">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
-          <span className="text-label text-dim">Checking device authorization...</span>
+          <span className="text-label text-dim">Checking authorization...</span>
         </div>
       </div>
     );
@@ -199,9 +190,9 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
             <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-line bg-surface-2 text-brand">
               <Lock className="h-6 w-6 text-brand" />
             </div>
-            <h1 className="text-title font-semibold text-paper">RevMarks Access</h1>
+            <h1 className="text-title font-semibold text-paper">RevMarks</h1>
             <p className="mt-1 text-label text-dim">
-              Enter the access password to use RevMarks on this device.
+              Enter password to access RevMarks on this device.
             </p>
           </div>
 
@@ -210,9 +201,9 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
               <Field
                 ref={inputRef}
                 id="app-device-password-input"
-                label="Access Password"
+                label="Password"
                 type={showPassword ? "text" : "password"}
-                placeholder="Enter access password"
+                placeholder="Enter password"
                 value={password}
                 autoComplete="current-password"
                 enterKeyHint="done"
@@ -241,9 +232,10 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
             {error && (
               <div
                 id="auth-error-message"
-                className="rounded-control border border-warn/40 bg-warn/10 px-3 py-2 text-micro font-medium text-warn"
+                className="flex items-center gap-2 rounded-control border border-warn/40 bg-warn/10 px-3 py-2 text-micro font-medium text-warn"
               >
-                {error}
+                <ShieldAlert className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -256,13 +248,8 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
               loading={submitting}
               disabled={submitting}
             >
-              Unlock RevMarks
+              Unlock
             </Button>
-
-            <div className="mt-1 flex items-center justify-center gap-1.5 text-micro text-dim">
-              <ShieldCheck className="h-3.5 w-3.5 text-brand" />
-              <span>Password is remembered on this device</span>
-            </div>
           </form>
         </div>
       </div>
@@ -270,7 +257,13 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: true, lockDevice }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated: status === "authenticated",
+        role,
+        lockDevice,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

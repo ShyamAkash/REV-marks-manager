@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Calendar,
@@ -13,11 +14,15 @@ import {
   Award,
   BookOpen,
   CheckCircle2,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Card } from "@/app/components/ui/Card";
 import { Skeleton } from "@/app/components/ui/Skeleton";
 import { EmptyState } from "@/app/components/ui/EmptyState";
 import { formatMark, formatTotal } from "@/lib/format";
+import { StudentModal } from "../StudentModal";
+import { DeleteStudentModal } from "../DeleteStudentModal";
 
 interface StudentRecord {
   id: number;
@@ -61,9 +66,12 @@ interface StudentDetailData {
 }
 
 export default function StudentDetailClient({ phone }: { phone: string }) {
+  const router = useRouter();
   const [data, setData] = useState<StudentDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   const fetchDetails = useCallback(async () => {
     setLoading(true);
@@ -86,6 +94,18 @@ export default function StudentDetailClient({ phone }: { phone: string }) {
   useEffect(() => {
     fetchDetails();
   }, [fetchDetails]);
+
+  const handleEditSuccess = (savedStudent: { phone_no: string; student_name: string; town: string }) => {
+    if (savedStudent.phone_no !== phone) {
+      router.push(`/manage/students/${encodeURIComponent(savedStudent.phone_no)}`);
+    } else {
+      fetchDetails();
+    }
+  };
+
+  const handleDeleteSuccess = () => {
+    router.push("/manage/students");
+  };
 
   return (
     <div className="space-y-6 pb-16">
@@ -190,7 +210,27 @@ export default function StudentDetailClient({ phone }: { phone: string }) {
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2 sm:self-center">
+              <div className="flex flex-wrap shrink-0 items-center gap-2 sm:self-center">
+                <button
+                  type="button"
+                  id="detail-edit-student-btn"
+                  onClick={() => setIsEditOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-label font-semibold text-paper transition-colors hover:border-brand-hot hover:text-white"
+                >
+                  <Pencil className="h-4 w-4 text-dim" />
+                  Edit
+                </button>
+
+                <button
+                  type="button"
+                  id="detail-delete-student-btn"
+                  onClick={() => setIsDeleteOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-label font-semibold text-dim transition-colors hover:border-danger/60 hover:bg-danger/10 hover:text-danger"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+
                 <Link
                   href={`/manage/records?town=${encodeURIComponent(data.student.town)}&search=${encodeURIComponent(data.student.phone_no)}`}
                   className="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface-2 px-3 py-2 text-label font-semibold text-paper transition-colors hover:border-dim hover:text-white"
@@ -449,6 +489,31 @@ export default function StudentDetailClient({ phone }: { phone: string }) {
               </div>
             )}
           </div>
+
+          {/* Edit Student Modal */}
+          <StudentModal
+            isOpen={isEditOpen}
+            mode="edit"
+            initialData={{
+              phone_no: data.student.phone_no,
+              student_name: data.student.student_name,
+              town: data.student.town,
+            }}
+            onClose={() => setIsEditOpen(false)}
+            onSuccess={handleEditSuccess}
+          />
+
+          {/* Delete Student Modal */}
+          <DeleteStudentModal
+            isOpen={isDeleteOpen}
+            student={{
+              phone_no: data.student.phone_no,
+              student_name: data.student.student_name,
+              records_count: data.stats.totalExams,
+            }}
+            onClose={() => setIsDeleteOpen(false)}
+            onSuccess={handleDeleteSuccess}
+          />
         </>
       )}
     </div>

@@ -4,9 +4,10 @@ import {
   AUTH_COOKIE,
   AUTH_COOKIE_MAX_AGE,
   AppPasswordNotSetError,
-  getAppPassword,
-  getExpectedToken,
-  verifyToken,
+  determineRole,
+  getExpectedRoleToken,
+  hasCustomRolePasswords,
+  verifyRoleToken,
 } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -95,17 +96,21 @@ function timingSafeEqualStrings(a: string, b: string): boolean {
 /** Is the cookie this device already holds still valid? */
 export async function GET(req: NextRequest) {
   try {
-    const authenticated = await verifyToken(req.cookies.get(AUTH_COOKIE)?.value);
-    return NextResponse.json({ authenticated });
+    const auth = await verifyRoleToken(req.cookies.get(AUTH_COOKIE)?.value);
+    return NextResponse.json({
+      authenticated: auth.valid,
+      role: auth.role,
+      hasCustomPassword: hasCustomRolePasswords(),
+    });
   } catch (err) {
     if (err instanceof AppPasswordNotSetError) {
       return NextResponse.json(
-        { authenticated: false, error: err.message },
+        { authenticated: false, role: null, hasCustomPassword: false, error: err.message },
         { status: 500 }
       );
     }
     return NextResponse.json(
-      { authenticated: false, error: "Authentication error" },
+      { authenticated: false, role: null, hasCustomPassword: false, error: "Authentication error" },
       { status: 500 }
     );
   }
@@ -133,9 +138,21 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const submitted = typeof body.password === "string" ? body.password.trim() : "";
-    const expected = getAppPassword();
 
-    if (!submitted || !timingSafeEqualStrings(submitted, expected)) {
+    if (!hasCustomRolePasswords()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "No password has been configured in environment variables. Please set ADMIN_PASSWORD or MARKER_PASSWORD.",
+        },
+        { status: 503 }
+      );
+    }
+
+    const role = determineRole(submitted);
+
+    if (!role) {
       recordFailure(key, now);
       return NextResponse.json(
         { success: false, error: "Incorrect password. Please try again." },
@@ -145,11 +162,11 @@ export async function POST(req: NextRequest) {
 
     attempts.delete(key);
 
-    // The token stays on the server side of the cookie. It is never returned in
-    // the body and never readable from page scripts, so the gate tracks "this
-    // device is unlocked" with a plain localStorage flag instead.
-    const response = NextResponse.json({ success: true });
-    response.cookies.set(AUTH_COOKIE, await getExpectedToken(), {
+    // The token stays on the server side of the cookie. It is never readable
+    // from page scripts directly; client uses response role and local session.
+    const roleToken = await getExpectedRoleToken(role);
+    const response = NextResponse.json({ success: true, role });
+    response.cookies.set(AUTH_COOKIE, roleToken, {
       path: "/",
       maxAge: AUTH_COOKIE_MAX_AGE,
       sameSite: "lax",

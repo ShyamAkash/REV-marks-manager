@@ -54,3 +54,68 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const student_name = String(body.student_name || "").trim();
+    const phone_no = String(body.phone_no || "").trim();
+    const town = String(body.town || "").trim();
+
+    if (!student_name) {
+      return NextResponse.json(
+        { error: "Student name is required" },
+        { status: 400 }
+      );
+    }
+    if (!phone_no) {
+      return NextResponse.json(
+        { error: "Phone number is required" },
+        { status: 400 }
+      );
+    }
+    if (!town) {
+      return NextResponse.json(
+        { error: "Assigned town is required" },
+        { status: 400 }
+      );
+    }
+
+    const db = sql();
+
+    // Check if phone number already exists
+    const existing = await db(
+      `SELECT phone_no FROM students WHERE phone_no = $1`,
+      [phone_no]
+    );
+    if (existing.length > 0) {
+      return NextResponse.json(
+        { error: `A student with phone number "${phone_no}" already exists.` },
+        { status: 409 }
+      );
+    }
+
+    const inserted = await db(
+      `INSERT INTO students (phone_no, student_name, town, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       RETURNING phone_no, student_name, town, created_at, updated_at`,
+      [phone_no, student_name, town]
+    );
+
+    const student = inserted[0] || {
+      phone_no,
+      student_name,
+      town,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    return NextResponse.json({ success: true, student }, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: errorStatus(err) }
+    );
+  }
+}
+
