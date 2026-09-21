@@ -31,7 +31,7 @@ export function MarkScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
-    if (session && entries.length > 0) {
+    if (session) {
       reportMarksCount(entries.length);
     }
   }, [session, entries.length, reportMarksCount]);

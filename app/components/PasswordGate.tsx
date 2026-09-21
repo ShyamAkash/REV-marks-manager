@@ -13,9 +13,27 @@ import { Button, Field } from "@/app/components/ui";
 
 const AUTH_UNLOCKED_KEY = "revmarks_auth_unlocked";
 const AUTH_ROLE_KEY = "revmarks_auth_role";
-const LEGACY_TOKEN_KEY = "revmarks_auth_token";
+const AUTH_TOKEN_KEY = "revmarks_auth_token";
 
 export type UserRole = "admin" | "marker";
+
+export function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getStoredAuthToken();
+  if (!token) return {};
+  return {
+    "x-role-token": token,
+    Authorization: `Bearer ${token}`,
+  };
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -49,10 +67,6 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     let unlocked = false;
     let savedRole: UserRole | null = null;
     try {
-      if (localStorage.getItem(LEGACY_TOKEN_KEY)) {
-        localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
-        localStorage.removeItem(LEGACY_TOKEN_KEY);
-      }
       unlocked = localStorage.getItem(AUTH_UNLOCKED_KEY) === "true";
       const stored = localStorage.getItem(AUTH_ROLE_KEY);
       if (stored === "admin" || stored === "marker") {
@@ -70,7 +84,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    fetch("/api/auth/verify")
+    fetch("/api/auth/verify", { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -79,6 +93,9 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
           try {
             localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
             localStorage.setItem(AUTH_ROLE_KEY, detectedRole);
+            if (data.token) {
+              localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+            }
           } catch {}
           setRole(detectedRole);
           setStatus("authenticated");
@@ -88,6 +105,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
         try {
           localStorage.removeItem(AUTH_UNLOCKED_KEY);
           localStorage.removeItem(AUTH_ROLE_KEY);
+          localStorage.removeItem(AUTH_TOKEN_KEY);
         } catch {}
         setRole(null);
         setStatus("locked");
@@ -139,6 +157,9 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
         try {
           localStorage.setItem(AUTH_UNLOCKED_KEY, "true");
           localStorage.setItem(AUTH_ROLE_KEY, assignedRole);
+          if (data.token) {
+            localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+          }
         } catch {}
         setRole(assignedRole);
         setStatus("authenticated");
@@ -159,7 +180,7 @@ export function PasswordGate({ children }: { children: React.ReactNode }) {
     try {
       localStorage.removeItem(AUTH_UNLOCKED_KEY);
       localStorage.removeItem(AUTH_ROLE_KEY);
-      localStorage.removeItem(LEGACY_TOKEN_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
       document.cookie = "revmarks_auth=; Max-Age=0; path=/;";
       await fetch("/api/auth/verify", { method: "DELETE" }).catch(() => {});
     } catch {

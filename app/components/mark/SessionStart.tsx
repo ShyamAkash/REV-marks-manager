@@ -22,6 +22,12 @@ export function SessionStart({
     setCheckedBy(getLastStaff());
   }, []);
 
+  useEffect(() => {
+    if (!revId && revs.length > 0) {
+      setRevId(String(revs[0].id));
+    }
+  }, [revs, revId]);
+
   const canStart = Boolean(town && revId && checkedBy.trim());
 
   function start() {

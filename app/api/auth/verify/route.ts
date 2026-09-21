@@ -96,7 +96,11 @@ function timingSafeEqualStrings(a: string, b: string): boolean {
 /** Is the cookie this device already holds still valid? */
 export async function GET(req: NextRequest) {
   try {
-    const auth = await verifyRoleToken(req.cookies.get(AUTH_COOKIE)?.value);
+    const token =
+      req.cookies.get(AUTH_COOKIE)?.value ||
+      req.headers.get("x-role-token") ||
+      req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    const auth = await verifyRoleToken(token);
     return NextResponse.json({
       authenticated: auth.valid,
       role: auth.role,
@@ -162,14 +166,12 @@ export async function POST(req: NextRequest) {
 
     attempts.delete(key);
 
-    // The token stays on the server side of the cookie. It is never readable
-    // from page scripts directly; client uses response role and local session.
     const roleToken = await getExpectedRoleToken(role);
-    const response = NextResponse.json({ success: true, role });
+    const response = NextResponse.json({ success: true, role, token: roleToken });
     response.cookies.set(AUTH_COOKIE, roleToken, {
       path: "/",
       maxAge: AUTH_COOKIE_MAX_AGE,
-      sameSite: "lax",
+      sameSite: SECURE_COOKIE ? "none" : "lax",
       httpOnly: true,
       secure: SECURE_COOKIE,
     });

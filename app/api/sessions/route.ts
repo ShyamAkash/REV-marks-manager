@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE, verifyRoleToken } from "@/lib/auth";
 import {
+  clearAllActiveSessions,
   endActiveSession,
   getActiveSessions,
   upsertActiveSession,
@@ -8,8 +9,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function extractAuthToken(req: NextRequest): string | undefined {
+  return (
+    req.cookies.get(AUTH_COOKIE)?.value ||
+    req.headers.get("x-role-token") ||
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    undefined
+  );
+}
+
 export async function GET(req: NextRequest) {
-  const auth = await verifyRoleToken(req.cookies.get(AUTH_COOKIE)?.value);
+  const token = extractAuthToken(req);
+  const auth = await verifyRoleToken(token);
   if (!auth.valid || auth.role !== "admin") {
     return NextResponse.json(
       { error: "Only administrators can view active sessions." },
@@ -22,7 +33,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await verifyRoleToken(req.cookies.get(AUTH_COOKIE)?.value);
+  const token = extractAuthToken(req);
+  const auth = await verifyRoleToken(token);
   if (!auth.valid) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
   }
@@ -50,7 +62,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = await verifyRoleToken(req.cookies.get(AUTH_COOKIE)?.value);
+  const token = extractAuthToken(req);
+  const auth = await verifyRoleToken(token);
   if (!auth.valid) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
   }
@@ -63,6 +76,17 @@ export async function DELETE(req: NextRequest) {
       { error: "Missing session id parameter." },
       { status: 400 }
     );
+  }
+
+  if (id === "all") {
+    if (auth.role !== "admin") {
+      return NextResponse.json(
+        { error: "Only administrators can clear all sessions." },
+        { status: 403 }
+      );
+    }
+    clearAllActiveSessions();
+    return NextResponse.json({ success: true, cleared: true });
   }
 
   const ended = endActiveSession(id);

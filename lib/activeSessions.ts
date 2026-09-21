@@ -16,32 +16,6 @@ const g = globalThis as unknown as {
 
 if (!g.__activeSessionsMap) {
   g.__activeSessionsMap = new Map<string, ActiveSession>();
-
-  // Seed with representative active marking sessions so admins can inspect live state immediately
-  const now = Date.now();
-  g.__activeSessionsMap.set("sample-sess-1", {
-    id: "sample-sess-1",
-    staffName: "Kasun Perera",
-    town: "Kandy",
-    revId: "1",
-    revNo: "REV 01",
-    startedAt: new Date(now - 25 * 60_000).toISOString(),
-    lastActiveAt: new Date(now - 30_000).toISOString(),
-    marksCount: 32,
-    status: "active",
-  });
-
-  g.__activeSessionsMap.set("sample-sess-2", {
-    id: "sample-sess-2",
-    staffName: "Sanduni Fernando",
-    town: "Gampaha",
-    revId: "1",
-    revNo: "REV 01",
-    startedAt: new Date(now - 14 * 60_000).toISOString(),
-    lastActiveAt: new Date(now - 90_000).toISOString(),
-    marksCount: 19,
-    status: "active",
-  });
 }
 
 const sessionStore = g.__activeSessionsMap;
@@ -110,4 +84,8 @@ export function upsertActiveSession(data: {
 
 export function endActiveSession(id: string): boolean {
   return sessionStore.delete(id);
+}
+
+export function clearAllActiveSessions(): void {
+  sessionStore.clear();
 }

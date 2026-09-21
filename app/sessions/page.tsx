@@ -17,7 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button, Card, EmptyState, Field } from "@/app/components/ui";
-import { useAuth } from "@/app/components/PasswordGate";
+import { getAuthHeaders, useAuth } from "@/app/components/PasswordGate";
 import type { ActiveSession } from "@/lib/activeSessions";
 
 function getRelativeTime(isoString: string): string {
@@ -55,7 +55,9 @@ export default function ActiveSessionsPage() {
   const fetchSessions = useCallback(async (isSilent = false) => {
     if (!isSilent) setRefreshing(true);
     try {
-      const res = await fetch("/api/sessions");
+      const res = await fetch("/api/sessions", {
+        headers: getAuthHeaders(),
+      });
       if (!res.ok) {
         if (res.status === 403) {
           throw new Error("Admin access required to view active sessions.");
@@ -99,9 +101,29 @@ export default function ActiveSessionsPage() {
     try {
       const res = await fetch(`/api/sessions?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== id));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleClearAllSessions = async () => {
+    const confirm = window.confirm(
+      "Are you sure you want to clear all active sessions from the monitor?"
+    );
+    if (!confirm) return;
+
+    try {
+      const res = await fetch("/api/sessions?id=all", {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        setSessions([]);
       }
     } catch {
       // ignore
@@ -205,6 +227,19 @@ export default function ActiveSessionsPage() {
             <RefreshCw className={["h-3.5 w-3.5", refreshing ? "animate-spin" : ""].join(" ")} />
             <span>Refresh</span>
           </Button>
+
+          {sessions.length > 0 && (
+            <Button
+              id="clear-all-sessions-btn"
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleClearAllSessions()}
+              className="text-dim hover:border-warn/40 hover:bg-warn/10 hover:text-warn"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              <span>Clear All</span>
+            </Button>
+          )}
         </div>
       </div>
 

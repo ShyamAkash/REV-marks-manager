@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RevConfig } from "@/lib/calc";
+import { getAuthHeaders } from "@/app/components/PasswordGate";
 
 // Unchanged from the previous implementation on purpose - see constraint above.
 const SESSION_KEY = "marks_session_v2";
@@ -33,6 +34,7 @@ export function useMarkSession() {
   const [revs, setRevs] = useState<RevConfig[]>([]);
   const [ready, setReady] = useState(false);
   const [sessionId, setSessionId] = useState("");
+  const marksCountRef = useRef<number>(0);
 
   useEffect(() => {
     fetch("/api/revs")
@@ -69,17 +71,20 @@ export function useMarkSession() {
   useEffect(() => {
     if (!session || !sessionId) return;
 
-    const reportHeartbeat = (marksCount?: number) => {
+    const reportHeartbeat = () => {
       fetch("/api/sessions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({
           id: sessionId,
           staffName: session.checkedBy,
           town: session.town,
           revId: session.revId,
           revNo: currentRev?.rev_no,
-          marksCount,
+          marksCount: marksCountRef.current,
         }),
       }).catch(() => {});
     };
@@ -90,49 +95,65 @@ export function useMarkSession() {
     return () => clearInterval(interval);
   }, [session, sessionId, currentRev]);
 
-  const startSession = useCallback((s: MarkSession) => {
-    const sid = getOrCreateSessionId();
-    setSessionId(sid);
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    try {
-      localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
-    } catch {}
-    setSession(s);
+  const startSession = useCallback(
+    (s: MarkSession) => {
+      const sid = getOrCreateSessionId();
+      setSessionId(sid);
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      try {
+        localStorage.setItem(LAST_STAFF_KEY, s.checkedBy);
+      } catch {}
+      setSession(s);
 
-    // Immediate registration
-    fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: sid,
-        staffName: s.checkedBy,
-        town: s.town,
-        revId: s.revId,
-      }),
-    }).catch(() => {});
-  }, []);
+      const revObj = revs.find((r) => String(r.id) === String(s.revId));
+
+      // Immediate registration
+      fetch("/api/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          id: sid,
+          staffName: s.checkedBy,
+          town: s.town,
+          revId: s.revId,
+          revNo: revObj?.rev_no,
+          marksCount: marksCountRef.current,
+        }),
+      }).catch(() => {});
+    },
+    [revs]
+  );
 
   const endSession = useCallback(() => {
     const sid = sessionId || getOrCreateSessionId();
     if (sid) {
       fetch(`/api/sessions?id=${encodeURIComponent(sid)}`, {
         method: "DELETE",
+        headers: getAuthHeaders(),
       }).catch(() => {});
     }
     try {
       sessionStorage.removeItem(SESSION_KEY);
       sessionStorage.removeItem(SESSION_ID_KEY);
     } catch {}
+    marksCountRef.current = 0;
     setSession(null);
     setSessionId("");
   }, [sessionId]);
 
   const reportMarksCount = useCallback(
     (count: number) => {
+      marksCountRef.current = count;
       if (!session || !sessionId) return;
       fetch("/api/sessions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({
           id: sessionId,
           staffName: session.checkedBy,
